@@ -70,6 +70,8 @@ const projects = defineCollection({
     image: z.string().startsWith("/img/").optional(),
     imageAlt: z.string().optional(),
     /** pixel icon, used when the section has layout: rows */
+    /** where a rows-layout entry links to (e.g. a tool page) */
+    href: z.string().optional(),
     icon: z.enum(iconNames as [string, ...string[]]).optional(),
     /** name of a file in src/demos (without .astro) */
     demo: z.string().optional(),

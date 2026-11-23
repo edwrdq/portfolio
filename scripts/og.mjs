@@ -50,9 +50,10 @@ const seam = () =>
 
 const fit = (text, max, min, perChar) => Math.max(min, Math.min(max, Math.floor(perChar / Math.max(text.length, 1))));
 
-function card({ kicker, title, upper = false, second, sub, foot }) {
+function card({ kicker, title, upper = false, second, sub, foot, art }) {
   const size = upper ? fit(title, 200, 110, 1200) : fit(title, 170, 72, 1700);
-  return h("div", { width: W, height: H, flexDirection: "column", backgroundColor: C.bg, fontFamily: "Inter Tight" },
+  return h("div", { width: W, height: H, flexDirection: "column", backgroundColor: C.bg, fontFamily: "Inter Tight", position: "relative" },
+
     // top bar
     h("div", { justifyContent: "space-between", alignItems: "center", height: 84, flexShrink: 0, paddingLeft: 64, paddingRight: 64 },
       label("EDWRDQ", C.text), label("FW—26", C.acid)),
@@ -72,11 +73,13 @@ function card({ kicker, title, upper = false, second, sub, foot }) {
       second
         ? h("div", { marginTop: 22, marginLeft: W * 0.4 - 64, fontSize: 84, fontWeight: 700, letterSpacing: 84 * -0.055, lineHeight: 0.9, color: C.bone }, second)
         : null,
-      sub ? h("div", mono(26, C.dim1, { marginTop: 30, marginLeft: W * 0.4 - 64, maxWidth: 620, lineHeight: 1.45 }), sub) : null,
+      sub ? h("div", mono(26, C.dim1, art ? { marginTop: 30, maxWidth: 440, lineHeight: 1.45 } : { marginTop: 30, marginLeft: W * 0.4 - 64, maxWidth: 620, lineHeight: 1.45 }), sub) : null,
     ),
     // foot
     h("div", { justifyContent: "space-between", alignItems: "center", height: 72, flexShrink: 0, paddingLeft: 64, paddingRight: 64 },
       label(foot ?? "EDWRDQ.COM", C.dim3), label("DORAL / FLORIDA", C.dim3)),
+    // optional dithered art, pinned right of the title
+    art ? { type: "img", props: { src: art.src, width: art.w, height: art.h, style: { position: "absolute", right: 64, top: 140, imageRendering: "pixelated" } } } : null,
   );
 }
 
@@ -127,6 +130,13 @@ index.forEach((s, i) => {
     jobs.push([s.id, card({ kicker: `${pad(i + 1)} — ${s.desc}`, title: s.title, sub: s.intro })]);
   }
 });
+// public tools (pages outside the index). art = a dithered image shown on the card
+const sampleArt = `data:image/png;base64,${(await readFile(join(SITE, "public/img/dither-sample.png"))).toString("base64")}`;
+const TOOLS = [
+  { path: "dither", kicker: "T01 — TOOL / IMAGE", title: "dither", sub: "free online image dithering. runs in your browser.", foot: "EDWRDQ.COM/DITHER", art: { src: sampleArt, w: 576, h: 384 } },
+];
+for (const t of TOOLS) jobs.push([t.path, card(t)]);
+
 for (const p of await posts()) {
   const d = p.date ? new Date(p.date).toISOString().slice(0, 10).replace(/-/g, ".") : "";
   jobs.push([`blog/${p.slug}`, card({ kicker: `BLOG — ${d}`, title: p.title ?? p.slug, sub: p.summary, foot: `EDWRDQ.COM/BLOG/${p.slug.toUpperCase()}` })]);

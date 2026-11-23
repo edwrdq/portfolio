@@ -1,0 +1,302 @@
+---
+// the dither workspace: drop/paste a photo, tune it, export. shared by the admin tool and the
+// public /dither page so both stay in sync. wire it up with createStudio() from "@edwrdq/dither/studio".
+// slots: "export" (extra buttons next to download), default (extra blocks under the workspace).
+import { ALGOS, WIDTHS } from "./index.ts";
+
+interface Props {
+  /** public page: custom colours, copy-to-clipboard, workspace visible from the start */
+  open?: boolean;
+  /** pre-dithered image shown in the stage before js runs (keeps the page meaningful + no layout shift) */
+  placeholder?: { src: string; width: number; height: number; alt: string };
+  resetLabel?: string;
+}
+
+const { open = false, placeholder, resetLabel = "RESET" } = Astro.props;
+const ALGO_LABEL: Record<string, string> = { atkinson: "atkinson", floyd: "floyd–steinberg", bayer4: "bayer 4×4", bayer8: "bayer 8×8", threshold: "threshold" };
+---
+
+<div class="dt" data-dt>
+  <label class="zone" data-zone>
+    <input type="file" accept="image/*" class="sr-only" data-file />
+    <span class="zone-big">drop a photo</span>
+    <span class="zone-small">tap to pick, drag it in, or paste · processed in your browser, it never gets uploaded</span>
+  </label>
+
+  <div class="ws" data-ws hidden={!open}>
+    <div class="stagebar">
+      <button type="button" class="btn sm" data-hold>HOLD: ORIGINAL</button>
+      <button type="button" class="btn sm" data-zoom aria-pressed="false">100%</button>
+      <button type="button" class="btn sm" data-crop aria-pressed="false">CROP</button>
+      <span class="info" data-info aria-live="polite"></span>
+    </div>
+    <div class="chips aspects" data-aspects hidden>
+      {["free", "1:1", "4:5", "16:9", "3:2"].map((a, i) => <button type="button" class="chip" data-aspect={a} aria-pressed={String(i === 0)}>{a}</button>)}
+      <button type="button" class="chip" data-crop-reset>full</button>
+    </div>
+
+    <div class="stage" data-stage>
+      {placeholder && <img class="ph" data-ph src={placeholder.src} width={placeholder.width} height={placeholder.height} alt={placeholder.alt} fetchpriority="high" />}
+      <canvas class="out" data-out hidden={!!placeholder} aria-label="dithered result" role="img"></canvas>
+      <canvas class="orig" data-orig hidden></canvas>
+      <div class="cropview" data-cropview hidden>
+        <canvas data-srcview></canvas>
+        <div class="rect" data-rect><span class="handle" data-handle></span></div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="ctl">
+        <p class="label">ALGORITHM</p>
+        <div class="chips">{ALGOS.map((a) => <button type="button" class="chip" data-p="algo" data-v={a}>{ALGO_LABEL[a]}</button>)}</div>
+      </div>
+      <div class="ctl">
+        <p class="label">WIDTH</p>
+        <div class="chips">{WIDTHS.map((w) => <button type="button" class="chip" data-p="width" data-v={w}>{w}</button>)}</div>
+      </div>
+      <div class="ctl two">
+        <div>
+          <p class="label">DOT SCALE</p>
+          <div class="chips">{[1, 2, 3].map((s) => <button type="button" class="chip" data-p="scale" data-v={s}>{s}×</button>)}</div>
+        </div>
+        <div>
+          <p class="label">PALETTE</p>
+          <div class="chips">
+            <button type="button" class="chip" data-p="palette" data-v="bone">bone</button>
+            <button type="button" class="chip" data-p="palette" data-v="acid">acid</button>
+            <button type="button" class="chip" data-p="palette" data-v="invert">black on bone</button>
+            {open && <button type="button" class="chip" data-p="palette" data-v="custom">custom</button>}
+          </div>
+          {
+            open && (
+              <div class="colors" data-colors>
+                <label>
+                  <input type="color" data-c="ink" value="#d6d3cc" />
+                  <span>ink</span>
+                </label>
+                <label>
+                  <input type="color" data-c="paper" value="#060606" />
+                  <span>paper</span>
+                </label>
+                <button type="button" class="chip" data-swap aria-label="swap ink and paper">⇄</button>
+              </div>
+            )
+          }
+        </div>
+      </div>
+      <div class="sliders">
+        <label><span>BRIGHTNESS <b data-val="brightness">0</b></span><input type="range" min="-100" max="100" step="1" value="0" data-r="brightness" /></label>
+        <label><span>CONTRAST <b data-val="contrast">0</b></span><input type="range" min="-100" max="100" step="1" value="0" data-r="contrast" /></label>
+        <label><span>GAMMA <b data-val="gamma">1.00</b></span><input type="range" min="0.2" max="3" step="0.05" value="1" data-r="gamma" /></label>
+        <label data-thr class="off"><span>THRESHOLD <b data-val="threshold">128</b></span><input type="range" min="0" max="255" step="1" value="128" data-r="threshold" disabled /></label>
+        <label class="check"><input type="checkbox" data-norm checked /> normalise (stretch contrast first)</label>
+      </div>
+      <div class="row">
+        <button type="button" class="btn sm" data-reset>{resetLabel}</button>
+      </div>
+    </div>
+
+    <section class="block">
+      <p class="label">EXPORT</p>
+      <div class="row">
+        <button type="button" class="btn sm" data-download>DOWNLOAD PNG</button>
+        {open && <button type="button" class="btn sm" data-clip hidden>COPY IMAGE</button>}
+        <slot name="export" />
+      </div>
+      <p class="status" data-status aria-live="polite"></p>
+    </section>
+    <slot />
+  </div>
+</div>
+
+<style>
+  .dt {
+    max-width: 60rem;
+  }
+  .zone {
+    display: grid;
+    place-items: center;
+    gap: 0.4rem;
+    min-height: 7rem;
+    padding: 1.25rem;
+    border: 1px solid var(--seam);
+    background: var(--surface);
+    text-align: center;
+    cursor: pointer;
+  }
+  .zone:hover,
+  .zone.over,
+  .zone:focus-within {
+    border-color: var(--acid);
+  }
+  .zone-big {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.5rem;
+    letter-spacing: var(--track-tight);
+    color: var(--bone);
+  }
+  .zone-small {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .ws {
+    display: grid;
+    gap: 1.25rem;
+    margin-top: 1.25rem;
+  }
+  .stagebar,
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .info {
+    margin-left: auto;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .btn.sm {
+    height: 2.75rem;
+    padding-inline: 0.85rem;
+  }
+  .btn[aria-pressed="true"] {
+    border-color: var(--acid);
+    color: var(--acid);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .chips :global(.chip) {
+    min-height: 2.5rem;
+  }
+  .stage {
+    position: relative;
+    border: 1px solid var(--seam);
+    background: var(--bg);
+    max-height: 75vh;
+    overflow: auto;
+    touch-action: pan-x pan-y;
+  }
+  .stage canvas,
+  .stage .ph {
+    display: block;
+    width: 100%;
+    height: auto;
+    image-rendering: pixelated;
+  }
+  .stage.zoomed canvas.out,
+  .stage.zoomed canvas.orig {
+    width: auto;
+    max-width: none;
+  }
+  .cropview {
+    position: relative;
+    user-select: none;
+    touch-action: none;
+  }
+  .cropview canvas {
+    image-rendering: auto;
+  }
+  .rect {
+    position: absolute;
+    border: 1px solid var(--acid);
+    box-shadow: 0 0 0 9999px color-mix(in srgb, var(--bg) 65%, transparent);
+    cursor: move;
+  }
+  .handle {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 1.75rem;
+    height: 1.75rem;
+    background: var(--acid);
+    cursor: nwse-resize;
+  }
+  .controls {
+    display: grid;
+    gap: 1rem;
+  }
+  .ctl .label {
+    margin-bottom: 0.5rem;
+  }
+  .two {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem 2rem;
+  }
+  .colors {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+  .colors label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+  .colors input[type="color"] {
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    border: 1px solid var(--seam);
+    background: none;
+    cursor: pointer;
+  }
+  .sliders {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 0.75rem 1.5rem;
+  }
+  .sliders label {
+    display: grid;
+    gap: 0.35rem;
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-2);
+  }
+  .sliders b {
+    color: var(--text);
+    font-weight: 400;
+  }
+  .sliders label.off {
+    opacity: 0.35;
+  }
+  input[type="range"] {
+    appearance: auto;
+    accent-color: var(--acid);
+    width: 100%;
+    min-height: 2rem;
+  }
+  .check {
+    display: flex !important;
+    align-items: center;
+    gap: 0.5rem;
+    letter-spacing: 0.02em !important;
+    font-size: var(--fs-small) !important;
+    color: var(--dim-1) !important;
+  }
+  .check input {
+    appearance: auto;
+    accent-color: var(--acid);
+    width: 1rem;
+    height: 1rem;
+  }
+  .block {
+    display: grid;
+    gap: 0.6rem;
+    margin-top: 1rem;
+  }
+  .status {
+    font-size: var(--fs-small);
+    color: var(--text);
+    min-height: 1.2em;
+  }
+</style>

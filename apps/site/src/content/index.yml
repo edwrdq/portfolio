@@ -66,6 +66,14 @@
   icon: box
   href: /misc
 
+- id: tools
+  title: tools
+  desc: free / in your browser
+  intro: "free little tools that run in your browser. no accounts, no uploads."
+  layout: rows
+  icon: dither
+  href: /tools
+
 - id: blog
   title: blog
   desc: notes

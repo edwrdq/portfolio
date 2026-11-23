@@ -1,9 +1,9 @@
-// the dither pipeline, shared by scripts/dither.mjs (node + sharp) and the admin dither tool
-// (browser canvas). both resize first, then hand raw pixels to `run`, so output matches.
+// the dither pipeline, shared by scripts/dither.mjs (node + sharp), the admin dither tool and the
+// public /dither page (browser canvas). both resize first, then hand raw pixels to `run`, so output matches.
 // erasable typescript only — node runs this file directly.
 
 export type Algo = "atkinson" | "floyd" | "bayer4" | "bayer8" | "threshold";
-export type Palette = "bone" | "acid" | "invert";
+export type Palette = "bone" | "acid" | "invert" | "custom";
 export type Params = {
   algo: Algo;
   width: number; // final output width in px
@@ -13,6 +13,8 @@ export type Params = {
   threshold: number; // 0 … 255 (threshold mode)
   scale: number; // 1 | 2 | 3 — dot size; dithers at width/scale, then upscales
   palette: Palette;
+  ink: string; // "#rrggbb", custom palette only
+  paper: string; // "#rrggbb", custom palette only
   normalize: boolean; // stretch 1st–99th percentile (sharp's normalise)
 };
 
@@ -26,6 +28,8 @@ export const DEFAULTS: Params = {
   threshold: 128,
   scale: 1,
   palette: "bone",
+  ink: "#d6d3cc", // bone
+  paper: "#060606", // bg
   normalize: true,
 };
 
@@ -40,6 +44,8 @@ export function hexToRgb(hex: string): RGB {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+const HEX = /^#[0-9a-f]{6}$/i;
+
 /** merge user params over defaults and clamp everything */
 export function clean(p: Partial<Params> | null | undefined): Params {
   const x = { ...DEFAULTS, ...(p ?? {}) };
@@ -52,7 +58,9 @@ export function clean(p: Partial<Params> | null | undefined): Params {
     gamma: num(x.gamma, 0.2, 3, 1),
     threshold: Math.round(num(x.threshold, 0, 255, 128)),
     scale: [1, 2, 3].includes(x.scale) ? x.scale : 1,
-    palette: (["bone", "acid", "invert"] as Palette[]).includes(x.palette) ? x.palette : "bone",
+    palette: (["bone", "acid", "invert", "custom"] as Palette[]).includes(x.palette) ? x.palette : "bone",
+    ink: HEX.test(String(x.ink)) ? String(x.ink).toLowerCase() : DEFAULTS.ink,
+    paper: HEX.test(String(x.paper)) ? String(x.paper).toLowerCase() : DEFAULTS.paper,
     normalize: x.normalize !== false,
   };
 }
@@ -154,7 +162,13 @@ export function dither(g: Float32Array, w: number, h: number, algo: Algo, thresh
 /** bits → pixels, with each dot scaled up `scale`× (nearest) */
 export function paint(bits: Uint8Array, w: number, h: number, p: Params, colors: Colors, channels: 3 | 4) {
   const [ink, paper] =
-    p.palette === "acid" ? [colors.acid, colors.bg] : p.palette === "invert" ? [colors.bg, colors.bone] : [colors.bone, colors.bg];
+    p.palette === "custom"
+      ? [hexToRgb(p.ink), hexToRgb(p.paper)]
+      : p.palette === "acid"
+        ? [colors.acid, colors.bg]
+        : p.palette === "invert"
+          ? [colors.bg, colors.bone]
+          : [colors.bone, colors.bg];
   const s = p.scale;
   const W = w * s;
   const H = h * s;

@@ -23,7 +23,8 @@ const {
   noindex = false,
 } = Astro.props;
 const fullTitle = title ? `${title} — edwrdq` : "edwrdq";
-const url = new URL(Astro.url.pathname, Astro.site);
+// canonical without a trailing slash, matching the sitemap and how pages are linked
+const url = new URL(Astro.url.pathname.replace(/(.)\/+$/, "$1"), Astro.site);
 const image = new URL(`/og/${og}.png`, Astro.site);
 ---
 
@@ -52,7 +53,11 @@ const image = new URL(`/og/${og}.png`, Astro.site);
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content={title ?? "edward quintero"} />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={image} />
     <meta name="generator" content={Astro.generator} />
+    <slot name="head" />
   </head>
   <body>
     <TopBar />

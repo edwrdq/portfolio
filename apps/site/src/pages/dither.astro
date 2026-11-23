@@ -1,0 +1,208 @@
+---
+// public dither tool. same workspace as the admin one (packages/dither), minus publishing.
+// everything happens in the browser; this page never receives an image.
+import Base from "../layouts/Base.astro";
+import PageHead from "../components/PageHead.astro";
+import ToolFoot from "../components/ToolFoot.astro";
+import Studio from "@edwrdq/dither/Studio.astro";
+
+const title = "free online image dithering tool";
+const description =
+  "dither any image online, free. atkinson, floyd–steinberg, bayer and threshold dithering with custom colors, crop and png export. runs in your browser, nothing gets uploaded.";
+
+const faq = [
+  {
+    q: "what is dithering?",
+    a: "dithering turns an image with lots of shades into one with just two colors, by spreading dots so your eye blends them back into gradients. it's how old screens, newspapers and game boys faked shading.",
+  },
+  {
+    q: "which dithering algorithm should i use?",
+    a: "atkinson is the classic old-mac look: high contrast, clean highlights. floyd–steinberg keeps more detail and mid-tones. bayer gives a regular crosshatch pattern that looks very retro. threshold is no dithering at all, just a hard black and white cut.",
+  },
+  {
+    q: "are my images uploaded anywhere?",
+    a: "no. the image is decoded and dithered on a canvas in your browser. there's no upload code on this page, so it also works offline once it's loaded.",
+  },
+  {
+    q: "can i use my own colors?",
+    a: "yes. pick custom under palette and choose an ink and a paper color. the export is a two-color png in exactly those colors.",
+  },
+];
+
+const url = new URL("/dither", Astro.site).href;
+const ld = JSON.stringify({
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      name: "dither — free online image dithering tool",
+      url,
+      description,
+      applicationCategory: "MultimediaApplication",
+      operatingSystem: "any (runs in the browser)",
+      browserRequirements: "requires javascript and canvas",
+      isAccessibleForFree: true,
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      featureList: ["atkinson dithering", "floyd–steinberg dithering", "bayer 4×4 and 8×8 ordered dithering", "threshold", "custom two-color palettes", "crop presets", "png export", "copy to clipboard"],
+      image: new URL("/og/dither.png", Astro.site).href,
+      author: { "@type": "Person", name: "edward quintero", url: Astro.site!.href },
+    },
+    {
+      "@type": "FAQPage",
+      mainEntity: faq.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
+    },
+  ],
+}).replace(/</g, "\\u003c");
+---
+
+<Base title={title} description={description} og="dither">
+  <script type="application/ld+json" slot="head" set:html={ld} />
+
+  <PageHead n="T01" label="TOOL — IMAGE" title="dither" intro="turn any photo into dots. pick an algorithm, your own two colors, crop it, export a png. it all runs in your browser, nothing gets uploaded." />
+
+  <section class="tool gutter" aria-label="dithering tool">
+    <Studio open placeholder={{ src: "/img/dither-sample.png", width: 640, height: 427, alt: "sample landscape, dithered with atkinson in bone on black" }} />
+    <p class="private">your image never leaves this device. there's no upload, no account, no tracking.</p>
+  </section>
+
+  <section class="explain gutter" aria-labelledby="how">
+    <div class="cols">
+      <div>
+        <h2 class="h" id="how">how to use it</h2>
+        <ol class="steps">
+          <li>drop a photo on the box, tap it to pick one, or paste with ctrl/⌘+v. the sample landscape is there so you can play first.</li>
+          <li>pick an algorithm and an output width. bigger dot scale = chunkier pixels.</li>
+          <li>tune brightness, contrast and gamma until the shadows look right. hold <b>original</b> to compare.</li>
+          <li>crop if you want a square or 4:5 for posting, then download the png or copy it.</li>
+        </ol>
+      </div>
+      <div>
+        <h2 class="h">what the algorithms do</h2>
+        <dl class="algos">
+          <dt>atkinson</dt>
+          <dd>spreads only 3/4 of the error to nearby pixels, so highlights and shadows blow out a bit. crisp, high contrast. what every image on this site uses.</dd>
+          <dt>floyd–steinberg</dt>
+          <dd>spreads all the error. smoother gradients, more detail, a little noisier.</dd>
+          <dt>bayer 4×4 / 8×8</dt>
+          <dd>ordered dithering with a fixed threshold grid. a regular, textile-looking pattern.</dd>
+          <dt>threshold</dt>
+          <dd>no dithering. every pixel is just above or below the cutoff you set.</dd>
+        </dl>
+      </div>
+    </div>
+
+    <h2 class="h faq-h">faq</h2>
+    <div class="faq">
+      {
+        faq.map((f) => (
+          <div class="qa">
+            <h3>{f.q}</h3>
+            <p>{f.a}</p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <ToolFoot />
+</Base>
+
+<script>
+  import { createStudio } from "@edwrdq/dither/studio";
+  const root = document.querySelector<HTMLElement>("[data-dt]");
+  if (root) createStudio(root, { sample: "/img/dither-sample.jpg" });
+</script>
+
+<style>
+  .tool {
+    display: grid;
+    gap: 1rem;
+  }
+  .private {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .explain {
+    margin-top: var(--section);
+    display: grid;
+    gap: 2.5rem;
+  }
+  .cols {
+    display: grid;
+    gap: 2.5rem;
+  }
+  .h {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.75rem, 5vw, 2.5rem);
+    letter-spacing: var(--track-tight);
+    line-height: 1;
+    color: var(--bone);
+    margin-bottom: 1.25rem;
+  }
+  .steps {
+    list-style: decimal-leading-zero;
+    padding-left: 2.5em;
+    display: grid;
+    gap: 0.6rem;
+    max-width: 60ch;
+  }
+  .steps ::marker {
+    color: var(--dim-2);
+  }
+  .steps b {
+    font-weight: 400;
+    color: var(--bone);
+  }
+  .algos {
+    display: grid;
+    gap: 0.35rem;
+    max-width: 60ch;
+  }
+  .algos dt {
+    color: var(--bone);
+    margin-top: 0.6rem;
+  }
+  .algos dt:first-child {
+    margin-top: 0;
+  }
+  .algos dd {
+    color: var(--dim-1);
+  }
+  .faq-h {
+    margin-bottom: 0;
+  }
+  .faq {
+    display: grid;
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .qa {
+    display: grid;
+    gap: 0.5rem;
+    padding-block: 1.25rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .qa:nth-child(even) {
+    margin-left: var(--shift);
+  }
+  .qa h3 {
+    color: var(--bone);
+    font-size: var(--fs-body);
+    font-weight: 400;
+  }
+  .qa p {
+    color: var(--dim-1);
+    max-width: 60ch;
+  }
+  @media (min-width: 960px) {
+    .cols {
+      grid-template-columns: 1fr 1fr;
+    }
+    .qa {
+      grid-template-columns: var(--offset) minmax(0, 1fr);
+    }
+    .qa:nth-child(even) {
+      grid-template-columns: calc(var(--offset) - (1 - var(--offset-k)) * var(--shift)) minmax(0, 1fr);
+    }
+  }
+</style>
