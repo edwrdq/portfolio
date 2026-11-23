@@ -1,0 +1,78 @@
+---
+// strip above every daily game: puzzle number + date, archive banner, links. filled in by js
+// (pages are static, "today" is only known in the browser).
+import type { GameId } from "@edwrdq/daily";
+interface Props {
+  game: GameId;
+}
+const { game } = Astro.props;
+---
+
+<nav class="dn" data-dn data-game={game} aria-label="daily">
+  <p class="which"><span data-dn-num>today's puzzle</span> <span class="date" data-dn-date></span></p>
+  <p class="links">
+    <a href="/daily">all dailies</a>
+    <span aria-hidden="true">·</span>
+    <a href="/daily/archive">archive</a>
+    <span class="streak" data-dn-streak hidden></span>
+  </p>
+  <p class="arch" data-dn-arch hidden>archive puzzle. it won't count toward your streak. <a href={`/daily/${game}`}>play today's →</a></p>
+</nav>
+
+<script>
+  import { padNum, puzzleNumber, weekday } from "@edwrdq/daily";
+  import { dayFromUrl, stats } from "@edwrdq/daily/client";
+  for (const el of document.querySelectorAll<HTMLElement>("[data-dn]")) {
+    const { day, archive } = dayFromUrl();
+    const [y, m, d] = day.split("-");
+    el.querySelector("[data-dn-num]")!.textContent = padNum(puzzleNumber(day));
+    el.querySelector("[data-dn-date]")!.textContent = `${["sun", "mon", "tue", "wed", "thu", "fri", "sat"][weekday(day)]} ${y}.${m}.${d}`;
+    el.querySelector<HTMLElement>("[data-dn-arch]")!.hidden = !archive;
+    const s = stats(el.dataset.game as any);
+    const streak = el.querySelector<HTMLElement>("[data-dn-streak]")!;
+    if (s.streak > 0) {
+      streak.hidden = false;
+      streak.textContent = `streak ${s.streak}`;
+    }
+  }
+</script>
+
+<style>
+  .dn {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+    font-variant-numeric: tabular-nums;
+    min-height: 1.5rem;
+  }
+  .which {
+    color: var(--text);
+  }
+  .date {
+    color: var(--dim-2);
+    margin-left: 0.5ch;
+  }
+  .links {
+    display: flex;
+    gap: 0.6rem;
+  }
+  a {
+    color: var(--dim-1);
+    border-bottom: 1px solid var(--dim-4);
+  }
+  a:hover {
+    color: var(--bone);
+    border-color: var(--bone);
+  }
+  .streak {
+    margin-left: 0.6rem;
+    color: var(--bone);
+  }
+  .arch {
+    flex-basis: 100%;
+    color: var(--dim-1);
+  }
+</style>

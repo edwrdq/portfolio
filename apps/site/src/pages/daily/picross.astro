@@ -1,0 +1,566 @@
+---
+// daily picross. the puzzle is generated in the browser from the day's seed (packages/daily),
+// so this page is static: the html carries the rules + faq, js draws today's board.
+import Base from "../../layouts/Base.astro";
+import PageHead from "../../components/PageHead.astro";
+import ToolFoot from "../../components/ToolFoot.astro";
+import DailyNav from "../../components/DailyNav.astro";
+import Faq from "../../components/Faq.astro";
+import { gameLd } from "../../lib/ld";
+
+const title = "daily picross — a free 8×8 nonogram every day";
+const description =
+  "a new 8×8 picross (nonogram) puzzle every day, the same for everyone. fill the grid from the row and column clues, reveal a pixel icon, share your time. free, no account.";
+
+const faq = [
+  {
+    q: "how do you solve a nonogram?",
+    a: "each number is a run of filled squares in that row or column, in order, with at least one gap between runs. start with the big numbers: an 8 fills the whole line, a 6 in 8 cells always covers the middle 4. mark squares you know are empty with an x, and keep going back and forth between rows and columns.",
+  },
+  {
+    q: "is there only one answer?",
+    a: "yes. every daily is checked by a solver before it goes out: it has to be solvable with row/column logic alone, no guessing, which also means the answer is unique.",
+  },
+  {
+    q: "what counts as a mistake?",
+    a: "filling a square that should be empty. it gets marked with an x for you and the mistake count goes up. marking x's is free.",
+  },
+  {
+    q: "when does the next puzzle come out?",
+    a: "every day at midnight new york time. you can play older days from the archive, but only the day's own puzzle counts toward your streak.",
+  },
+];
+---
+
+<Base title={title} description={description} og="daily/picross">
+  <script type="application/ld+json" slot="head" set:html={gameLd({ path: "/daily/picross", name: "daily picross", description, faq, og: "daily/picross" })} />
+
+  <PageHead n="D01" label="DAILY — PICROSS" title="picross" intro="an 8×8 nonogram, new every day. the answer is a pixel icon." />
+
+  <section class="game gutter" aria-label="today's picross" data-picross>
+    <DailyNav game="picross" />
+
+    <div class="hud">
+      <div class="modes" role="group" aria-label="tap mode">
+        <button type="button" class="btn sm" data-mode="fill" aria-pressed="true">■ FILL</button>
+        <button type="button" class="btn sm" data-mode="mark" aria-pressed="false">× MARK</button>
+      </div>
+      <p class="meta"><span data-time>0:00</span> · <span data-miss>0</span> mistakes</p>
+    </div>
+
+    <div class="board-wrap">
+      <div class="board" data-board aria-label="puzzle grid" role="grid">
+        <noscript><p class="nojs">the puzzle is drawn by javascript. turn it on to play.</p></noscript>
+      </div>
+    </div>
+    <p class="hint">tap to fill · long-press or switch to × to mark empty · drag to do a whole line</p>
+
+    <div class="done" data-done hidden>
+      <p class="label" data-done-label>SOLVED</p>
+      <p class="reveal" data-reveal></p>
+      <p class="score" data-score></p>
+      <div class="row">
+        <button type="button" class="btn btn-primary" data-share>SHARE</button>
+        <span class="shared" data-shared aria-live="polite"></span>
+      </div>
+      <pre class="share-preview" data-share-preview></pre>
+      <dl class="stats" data-stats></dl>
+      <p class="next" data-next></p>
+    </div>
+  </section>
+
+  <section class="explain gutter" aria-labelledby="how">
+    <h2 class="h" id="how">how to play</h2>
+    <ol class="steps">
+      <li>the numbers left of each row and above each column are the runs of filled squares in that line, in order.</li>
+      <li>tap a square to fill it. long-press, or switch to <b>× mark</b>, to mark one as empty.</li>
+      <li>filling a square that should be empty is a mistake. it's marked for you, and it counts.</li>
+      <li>fill every square that belongs to the picture and you've solved it. about a third of days it's one of this site's own icons.</li>
+    </ol>
+
+    <Faq items={faq} />
+  </section>
+
+  <ToolFoot />
+</Base>
+
+<script>
+  import { dailyPicross, N } from "@edwrdq/daily/picross";
+  import { clock, dayFromUrl, getDay, putDay, report, share, shareText, solveRate, stats } from "@edwrdq/daily/client";
+  import { msToNextDay } from "@edwrdq/daily";
+
+  // 0 unknown · 1 filled · 2 marked x · 3 mistake (auto x)
+  type State = { cells: number[]; mistakes: number; elapsed: number };
+
+  const root = document.querySelector<HTMLElement>("[data-picross]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const { day, archive } = dayFromUrl();
+    const p = dailyPicross(day);
+    const saved = getDay<State>("picross", day);
+    let st: State = saved?.state ?? { cells: new Array(N * N).fill(0), mistakes: 0, elapsed: 0 };
+    let done = !!saved?.done;
+    let mode: "fill" | "mark" = "fill";
+    let startedAt = 0; // perf time the clock last resumed
+    let running = false;
+
+    // ---------------- board
+    const board = $("[data-board]");
+    board.replaceChildren();
+    const corner = document.createElement("div");
+    corner.className = "corner";
+    board.append(corner);
+    const colClue: HTMLElement[] = [];
+    const rowClue: HTMLElement[] = [];
+    for (let x = 0; x < N; x++) {
+      const c = document.createElement("div");
+      c.className = "clue col";
+      c.append(...p.cols[x].map((n) => Object.assign(document.createElement("span"), { textContent: String(n) })));
+      board.append(c);
+      colClue.push(c);
+    }
+    const cellEls: HTMLButtonElement[] = [];
+    for (let y = 0; y < N; y++) {
+      const r = document.createElement("div");
+      r.className = "clue row";
+      r.append(...p.rows[y].map((n) => Object.assign(document.createElement("span"), { textContent: String(n) })));
+      board.append(r);
+      rowClue.push(r);
+      for (let x = 0; x < N; x++) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "cell";
+        b.dataset.i = String(y * N + x);
+        if (x === 3) b.classList.add("sx");
+        if (y === 3) b.classList.add("sy");
+        if (x === 0) b.classList.add("l");
+        if (y === 0) b.classList.add("t");
+        if (x === N - 1) b.classList.add("r");
+        if (y === N - 1) b.classList.add("b");
+        b.setAttribute("aria-label", `row ${y + 1}, column ${x + 1}`);
+        board.append(b);
+        cellEls.push(b);
+      }
+    }
+
+    const lineDone = (idx: number[]) => idx.every((i) => !p.grid[i] || st.cells[i] === 1);
+    function paint() {
+      st.cells.forEach((v, i) => {
+        const el = cellEls[i];
+        el.dataset.v = String(v);
+        el.setAttribute("aria-pressed", String(v === 1));
+      });
+      for (let y = 0; y < N; y++) rowClue[y].classList.toggle("ok", p.rows[y][0] === 0 || lineDone(Array.from({ length: N }, (_, x) => y * N + x)));
+      for (let x = 0; x < N; x++) colClue[x].classList.toggle("ok", p.cols[x][0] === 0 || lineDone(Array.from({ length: N }, (_, y) => y * N + x)));
+      $("[data-miss]").textContent = String(st.mistakes);
+      $("[data-time]").textContent = clock(elapsed());
+    }
+
+    // ---------------- clock
+    const elapsed = () => st.elapsed + (running ? performance.now() - startedAt : 0);
+    const start = () => {
+      if (running || done) return;
+      running = true;
+      startedAt = performance.now();
+    };
+    const pause = () => {
+      if (!running) return;
+      st.elapsed = elapsed();
+      running = false;
+      save();
+    };
+    setInterval(() => running && ($("[data-time]").textContent = clock(elapsed())), 500);
+    document.addEventListener("visibilitychange", () => (document.hidden ? pause() : st.cells.some((v) => v) && start()));
+
+    function save() {
+      const rec = getDay("picross", day);
+      putDay("picross", day, { ...rec, live: rec?.live ?? !archive, done, solved: done, state: { ...st, elapsed: elapsed() } });
+    }
+
+    // ---------------- moves
+    let first = true;
+    function act(i: number, kind: "fill" | "mark", markTo?: number) {
+      const v = st.cells[i];
+      if (done || v === 1 || v === 3) return;
+      if (kind === "mark") {
+        st.cells[i] = markTo ?? (v === 2 ? 0 : 2);
+        return;
+      }
+      if (v === 2) return; // marked squares are protected from fills
+      if (p.grid[i]) st.cells[i] = 1;
+      else {
+        st.cells[i] = 3;
+        st.mistakes++;
+        cellEls[i].classList.remove("flash");
+        void cellEls[i].offsetWidth;
+        cellEls[i].classList.add("flash");
+      }
+    }
+    function moved() {
+      if (done) return;
+      start();
+      if (p.grid.every((on, i) => !on || st.cells[i] === 1)) return void (paint(), finish());
+      paint();
+      save();
+      if (first) {
+        first = false;
+        report("picross", day, "play"); // after save: report() needs the day's record to exist
+      }
+    }
+
+    // pointer: tap = current mode, long-press = mark, drag = same action along the way
+    let drag: { kind: "fill" | "mark"; markTo: number; seen: Set<number>; timer: number; startI: number; moved: boolean } | null = null;
+    board.addEventListener("pointerdown", (e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>(".cell");
+      if (!el || done) return;
+      e.preventDefault();
+      board.setPointerCapture(e.pointerId);
+      const i = Number(el.dataset.i);
+      const kind = mode === "mark" || e.button === 2 ? "mark" : "fill";
+      drag = { kind, markTo: st.cells[i] === 2 ? 0 : 2, seen: new Set(), timer: 0, startI: i, moved: false };
+      if (kind === "fill" && e.pointerType !== "mouse") {
+        // wait a beat on touch: a long-press turns this press into a mark
+        drag.timer = window.setTimeout(() => {
+          if (!drag || drag.moved) return;
+          drag.kind = "mark";
+          drag.markTo = st.cells[i] === 2 ? 0 : 2;
+          navigator.vibrate?.(12);
+          apply(i);
+        }, 380);
+      } else apply(i);
+    });
+    const apply = (i: number) => {
+      if (!drag || drag.seen.has(i)) return;
+      drag.seen.add(i);
+      act(i, drag.kind, drag.markTo);
+      moved();
+    };
+    board.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>(".cell");
+      if (!el) return;
+      const i = Number(el.dataset.i);
+      if (i !== drag.startI && !drag.moved) {
+        drag.moved = true;
+        clearTimeout(drag.timer);
+        apply(drag.startI);
+      }
+      if (drag.moved) apply(i);
+    });
+    const end = () => {
+      if (!drag) return;
+      clearTimeout(drag.timer);
+      if (!drag.seen.size) apply(drag.startI); // a plain tap
+      drag = null;
+    };
+    board.addEventListener("pointerup", end);
+    board.addEventListener("pointercancel", () => drag && (clearTimeout(drag.timer), (drag = null)));
+    board.addEventListener("contextmenu", (e) => e.preventDefault());
+    // keyboard: enter/space fills, x marks
+    board.addEventListener("keydown", (e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>(".cell");
+      if (!el) return;
+      const i = Number(el.dataset.i);
+      const move = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -N, ArrowDown: N }[e.key];
+      if (move !== undefined) {
+        e.preventDefault();
+        cellEls[Math.min(N * N - 1, Math.max(0, i + move))].focus();
+      } else if (e.key === "x" || e.key === "X") (act(i, "mark"), moved());
+      else if (e.key === "Enter" || e.key === " ") (e.preventDefault(), act(i, mode), moved());
+    });
+
+    for (const b of root.querySelectorAll<HTMLButtonElement>("[data-mode]"))
+      b.addEventListener("click", () => {
+        mode = b.dataset.mode as "fill" | "mark";
+        root.querySelectorAll("[data-mode]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      });
+
+    // ---------------- finish
+    function finish() {
+      st.elapsed = elapsed();
+      running = false;
+      done = true;
+      st.cells = st.cells.map((v, i) => (p.grid[i] ? 1 : v === 3 ? 3 : 2));
+      const rec = getDay("picross", day);
+      putDay("picross", day, { ...rec, done: true, solved: true, live: rec?.live ?? !archive, result: `${clock(st.elapsed)} · ${st.mistakes} ${st.mistakes === 1 ? "mistake" : "mistakes"}`, state: st });
+      report("picross", day, "play");
+      report("picross", day, "solve");
+      paint();
+      showDone();
+    }
+
+    async function showDone() {
+      root!.classList.add("is-done");
+      $("[data-done]").hidden = false;
+      $("[data-reveal]").textContent = p.name ? `it's the site's “${p.name}” icon.` : "a one-off icon, generated for today.";
+      const m = st.mistakes;
+      $("[data-score]").textContent = `${clock(st.elapsed)} · ${m === 0 ? "no mistakes" : m === 1 ? "1 mistake" : `${m} mistakes`}`;
+      const bar = "■".repeat(Math.max(0, 5 - m)) + "□".repeat(Math.min(5, m));
+      const text = shareText("picross", day, clock(st.elapsed), `${bar} ${m} ${m === 1 ? "mistake" : "mistakes"}`);
+      $("[data-share-preview]").textContent = text;
+      $("[data-share]").onclick = async () => {
+        const r = await share(text);
+        $("[data-shared]").textContent = r === "copied" ? "copied." : r === "shared" ? "" : "couldn't share. copy it from below.";
+      };
+      const s = stats("picross");
+      const dl = $("[data-stats]");
+      dl.replaceChildren(
+        ...(
+          [
+            ["played", s.played],
+            ["solved", s.solved],
+            ["streak", s.streak],
+            ["best", s.best],
+          ] as const
+        ).flatMap(([k, v]) => [Object.assign(document.createElement("dt"), { textContent: k }), Object.assign(document.createElement("dd"), { textContent: String(v) })]),
+      );
+      const next = $("[data-next]");
+      if (archive) next.textContent = "archive puzzles don't count toward your streak.";
+      else {
+        const tick = () => {
+          const ms = msToNextDay();
+          next.textContent = `next picross in ${clock(ms)}`;
+        };
+        tick();
+        setInterval(tick, 1000);
+      }
+      const rate = await solveRate("picross", day);
+      if (rate && rate.plays >= 5) {
+        const pct = Math.round((rate.solves / rate.plays) * 100);
+        dl.append(Object.assign(document.createElement("dt"), { textContent: "solved today" }), Object.assign(document.createElement("dd"), { textContent: `${pct}%` }));
+      }
+    }
+
+    paint();
+    if (done) showDone();
+    else if (st.cells.some((v) => v)) start();
+  }
+</script>
+
+<style>
+  .game {
+    display: grid;
+    gap: 1rem;
+    max-width: 34rem;
+  }
+  .hud {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .modes {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .btn.sm {
+    height: 2.75rem;
+    padding-inline: 0.85rem;
+  }
+  .btn[aria-pressed="true"] {
+    border-color: var(--bone);
+    color: var(--bone);
+  }
+  .meta {
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+    font-variant-numeric: tabular-nums;
+  }
+  .board-wrap {
+    --cell: min(2.75rem, calc((100vw - 2 * var(--gutter, 1rem) - 4.5rem) / 8));
+  }
+  /* reserve the board's space before js draws it: no layout shift */
+  .board {
+    display: grid;
+    grid-template-columns: 4.5rem repeat(8, var(--cell));
+    grid-template-rows: 5.5rem repeat(8, var(--cell));
+    width: max-content;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+  .board :global(.clue) {
+    display: flex;
+    gap: 0.3rem;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+    font-variant-numeric: tabular-nums;
+    transition: color var(--fast) var(--ease);
+  }
+  .board :global(.clue.col) {
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    padding-bottom: 0.4rem;
+    gap: 0.1rem;
+  }
+  .board :global(.clue.row) {
+    justify-content: flex-end;
+    align-items: center;
+    padding-right: 0.6rem;
+  }
+  .board :global(.clue.ok) {
+    color: var(--dim-4);
+  }
+  .board :global(.cell) {
+    position: relative;
+    border-right: 1px solid var(--seam-soft);
+    border-bottom: 1px solid var(--seam-soft);
+    background: var(--surface);
+    transition: background-color 80ms linear;
+  }
+  /* outer frame + the center seams after the 4th row/column */
+  .board :global(.cell.l) {
+    border-left: 1px solid var(--seam);
+  }
+  .board :global(.cell.t) {
+    border-top: 1px solid var(--seam);
+  }
+  .board :global(.cell.r) {
+    border-right-color: var(--seam);
+  }
+  .board :global(.cell.b) {
+    border-bottom-color: var(--seam);
+  }
+  .board :global(.cell.sx) {
+    border-right: 1px solid var(--dim-4);
+  }
+  .board :global(.cell.sy) {
+    border-bottom: 1px solid var(--dim-4);
+  }
+  .board :global(.cell[data-v="1"]) {
+    background: var(--bone);
+  }
+  .board :global(.cell[data-v="2"])::after,
+  .board :global(.cell[data-v="3"])::after {
+    content: "×";
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: var(--dim-3);
+    font-size: calc(var(--cell) * 0.5);
+    line-height: 1;
+  }
+  .board :global(.cell[data-v="3"])::after {
+    color: var(--text);
+  }
+  .board :global(.cell.flash) {
+    animation: miss 450ms var(--ease);
+  }
+  @keyframes miss {
+    0% {
+      background: var(--dim-3);
+    }
+    100% {
+      background: var(--surface);
+    }
+  }
+  .board :global(.cell:focus-visible) {
+    outline: 1px solid var(--bone);
+    outline-offset: -2px;
+  }
+  /* solved: the picture lights up acid */
+  :global(.is-done) .board :global(.cell[data-v="1"]) {
+    background: var(--acid);
+  }
+  :global(.is-done) .board :global(.cell[data-v="2"])::after {
+    content: none;
+  }
+  .nojs {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    color: var(--dim-2);
+    font-size: var(--fs-small);
+  }
+  .hint {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .done {
+    display: grid;
+    gap: 0.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--seam);
+  }
+  .reveal {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.5rem;
+    letter-spacing: var(--track-tight);
+    color: var(--bone);
+  }
+  .score {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .shared {
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+  .share-preview {
+    font-family: var(--font-mono);
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+    white-space: pre-wrap;
+    padding: 0.75rem;
+    border: 1px solid var(--seam-soft);
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+    grid-auto-flow: dense;
+  }
+  .stats :global(dt) {
+    grid-row: 2;
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+    color: var(--dim-2);
+  }
+  .stats :global(dd) {
+    grid-row: 1;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.75rem;
+    color: var(--bone);
+  }
+  .next {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .explain {
+    margin-top: var(--section);
+    display: grid;
+    gap: 1.5rem;
+  }
+  .h {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.75rem, 5vw, 2.5rem);
+    letter-spacing: var(--track-tight);
+    line-height: 1;
+    color: var(--bone);
+  }
+  .steps {
+    list-style: decimal-leading-zero;
+    padding-left: 2.5em;
+    display: grid;
+    gap: 0.6rem;
+    max-width: 60ch;
+  }
+  .steps ::marker {
+    color: var(--dim-2);
+  }
+  .steps b {
+    font-weight: 400;
+    color: var(--bone);
+  }
+</style>

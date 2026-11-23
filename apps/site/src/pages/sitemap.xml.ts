@@ -2,7 +2,7 @@
 import type { APIRoute } from "astro";
 import { getIndex, getPosts } from "../lib/content";
 
-const TOOLS = ["/dither"];
+const TOOLS = ["/dither", "/daily", "/daily/picross", "/daily/archive"];
 const HIDDEN = new Set(["/styleguide"]);
 
 export const GET: APIRoute = async ({ site }) => {

@@ -1,0 +1,67 @@
+---
+// every past day for every game. the list is built in the browser (it needs to know "today").
+import Base from "../../layouts/Base.astro";
+import PageHead from "../../components/PageHead.astro";
+import ToolFoot from "../../components/ToolFoot.astro";
+---
+
+<Base title="daily puzzle archive" description="play any past edwrdq daily puzzle: picross and more, every day since launch." og="daily">
+  <PageHead n="D99" label="DAILY — ARCHIVE" title="archive" intro="every past puzzle. play any of them. only the day's own puzzle counts toward a streak." />
+  <section class="gutter">
+    <ol class="days" data-days><noscript><li>the archive needs javascript.</li></noscript></ol>
+  </section>
+  <ToolFoot />
+</Base>
+
+<script>
+  import { GAMES, LAUNCH, addDays, dayKey, padNum, puzzleNumber } from "@edwrdq/daily";
+  import { getDay } from "@edwrdq/daily/client";
+  const today = dayKey();
+  const list = document.querySelector("[data-days]")!;
+  const items: HTMLElement[] = [];
+  for (let d = addDays(today, -1); d >= LAUNCH; d = addDays(d, -1)) {
+    const li = document.createElement("li");
+    li.append(Object.assign(document.createElement("span"), { className: "n", textContent: `${padNum(puzzleNumber(d))} ${d.replaceAll("-", ".")}` }));
+    for (const g of GAMES) {
+      const r = getDay(g.id, d);
+      const a = Object.assign(document.createElement("a"), { href: `${g.href}?day=${d}`, textContent: `${g.name}${r?.done ? " ✓" : ""}` });
+      if (r?.done) a.classList.add("done");
+      li.append(a);
+    }
+    items.push(li);
+  }
+  if (!items.length) items.push(Object.assign(document.createElement("li"), { className: "empty", textContent: "no past days yet. #001 is today." }));
+  list.replaceChildren(...items);
+</script>
+
+<style>
+  .days {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .days :global(li) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    padding-block: 0.9rem;
+    border-top: 1px solid var(--seam-soft);
+    font-size: var(--fs-small);
+  }
+  .days :global(.n) {
+    min-width: 12ch;
+    color: var(--dim-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .days :global(a) {
+    color: var(--text);
+    border-bottom: 1px solid var(--dim-4);
+  }
+  .days :global(a:hover) {
+    color: var(--bone);
+  }
+  .days :global(a.done) {
+    color: var(--dim-2);
+  }
+  .days :global(.empty) {
+    color: var(--dim-2);
+  }
+</style>

@@ -28,6 +28,8 @@
     { "binding": "DROP", "bucket_name": "edwrdq-drop" },
     { "binding": "MEDIA", "bucket_name": "edwrdq-media" }
   ],
+  // daily puzzle counter: max 20 posts/min per connection. counted in memory by cloudflare, nothing stored.
+  "ratelimits": [{ "name": "DAILY_LIMIT", "namespace_id": "1101", "simple": { "limit": 20, "period": 60 } }],
   "vars": {
     // discord user id for lanyard presence ("now" strip). empty = skip lanyard.
     "DISCORD_USER_ID": "1535485306311286836"
@@ -54,6 +56,7 @@
     { "binding": "DROP", "bucket_name": "edwrdq-drop" },
     { "binding": "MEDIA", "bucket_name": "edwrdq-media" }
   ],
+      "ratelimits": [{ "name": "DAILY_LIMIT", "namespace_id": "1101", "simple": { "limit": 20, "period": 60 } }],
       "vars": { "DISCORD_USER_ID": "1535485306311286836" }
     }
   }

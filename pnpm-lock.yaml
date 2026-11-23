@@ -251,6 +251,9 @@ importers:
       '@astrojs/rss':
         specifier: ^4.0.19
         version: 4.0.19
+      '@edwrdq/daily':
+        specifier: workspace:*
+        version: link:../../packages/daily
       '@edwrdq/dither':
         specifier: workspace:*
         version: link:../../packages/dither
@@ -275,6 +278,12 @@ importers:
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
+
+  packages/daily:
+    dependencies:
+      '@edwrdq/ui':
+        specifier: workspace:*
+        version: link:../ui
 
   packages/dither:
     dependencies:

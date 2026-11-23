@@ -1,0 +1,60 @@
+---
+// faq list for tool / puzzle pages. the same questions also go into the page's FAQPage json-ld.
+interface Props {
+  items: { q: string; a: string }[];
+}
+const { items } = Astro.props;
+---
+
+<h2 class="faq-h">faq</h2>
+<div class="faq">
+  {
+    items.map((f) => (
+      <div class="qa">
+        <h3>{f.q}</h3>
+        <p>{f.a}</p>
+      </div>
+    ))
+  }
+</div>
+
+<style>
+  .faq-h {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.75rem, 5vw, 2.5rem);
+    letter-spacing: var(--track-tight);
+    line-height: 1;
+    color: var(--bone);
+  }
+  .faq {
+    display: grid;
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .qa {
+    display: grid;
+    gap: 0.5rem;
+    padding-block: 1.25rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .qa:nth-child(even) {
+    margin-left: var(--shift);
+  }
+  h3 {
+    color: var(--bone);
+    font-size: var(--fs-body);
+    font-weight: 400;
+  }
+  p {
+    color: var(--dim-1);
+    max-width: 60ch;
+  }
+  @media (min-width: 960px) {
+    .qa {
+      grid-template-columns: var(--offset) minmax(0, 1fr);
+    }
+    .qa:nth-child(even) {
+      grid-template-columns: calc(var(--offset) - (1 - var(--offset-k)) * var(--shift)) minmax(0, 1fr);
+    }
+  }
+</style>

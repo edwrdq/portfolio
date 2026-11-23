@@ -1,0 +1,93 @@
+---
+// /daily: today's puzzles, done/not-done, the overall streak. static html lists the games;
+// js marks what you've finished (localStorage) and fills in today's number.
+import Base from "../../layouts/Base.astro";
+import PageHead from "../../components/PageHead.astro";
+import ToolFoot from "../../components/ToolFoot.astro";
+import Row from "@edwrdq/ui/Row.astro";
+import { GAMES } from "@edwrdq/daily";
+
+const description = "free daily puzzles, new every day at midnight new york time: picross and more. the same puzzle for everyone, shareable results, streaks, an archive.";
+const ICON = { picross: "face" } as const;
+const ld = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  name: "edwrdq daily puzzles",
+  url: "https://edwrdq.com/daily",
+  description,
+  hasPart: GAMES.map((g) => ({ "@type": "Game", name: `daily ${g.name}`, url: `https://edwrdq.com${g.href}` })),
+}).replace(/</g, "\\u003c");
+---
+
+<Base title="daily puzzles" description={description} og="daily">
+  <script type="application/ld+json" slot="head" set:html={ld} />
+  <PageHead n="D00" label="DAILY — PUZZLES" title="daily" intro="one puzzle per game per day, the same for everyone. new ones at midnight new york time." />
+
+  <section class="gutter" data-daily>
+    <p class="today"><span data-today>today</span><span class="streak" data-streak></span></p>
+    <ol class="rows">
+      {
+        GAMES.map((g, i) => (
+          <Row n={`D${String(i + 1).padStart(2, "0")}`} title={g.name} desc={g.blurb} icon={ICON[g.id]} href={g.href}>
+            <span class="mark" data-mark={g.id} />
+          </Row>
+        ))
+      }
+    </ol>
+    <p class="more"><span data-next></span> · <a href="/daily/archive">play past days →</a></p>
+  </section>
+
+  <ToolFoot />
+</Base>
+
+<script>
+  import { GAMES, msToNextDay, padNum, puzzleNumber } from "@edwrdq/daily";
+  import { clock, getDay, overallStreak } from "@edwrdq/daily/client";
+  import { dayKey } from "@edwrdq/daily";
+  const day = dayKey();
+  document.querySelector("[data-today]")!.textContent = `${padNum(puzzleNumber(day))} · ${day.replaceAll("-", ".")}`;
+  const { streak } = overallStreak();
+  if (streak) document.querySelector("[data-streak]")!.textContent = ` · ${streak}-day streak`;
+  for (const g of GAMES) {
+    const r = getDay(g.id, day);
+    const el = document.querySelector<HTMLElement>(`[data-mark="${g.id}"]`);
+    if (el) el.textContent = r?.done ? `[done${r.result ? ` · ${r.result}` : ""}]` : r ? "[in progress]" : "[not played]";
+  }
+  const next = document.querySelector("[data-next]")!;
+  const tick = () => (next.textContent = `next set in ${clock(msToNextDay())}`);
+  tick();
+  setInterval(tick, 1000);
+</script>
+
+<style>
+  .today {
+    font-size: var(--fs-small);
+    color: var(--text);
+    margin-bottom: 1.5rem;
+    font-variant-numeric: tabular-nums;
+    min-height: 1.5em;
+  }
+  .streak {
+    color: var(--bone);
+  }
+  .rows {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .mark {
+    margin-left: 0.75ch;
+    color: var(--dim-3);
+  }
+  .more {
+    margin-top: 1.5rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .more a {
+    color: var(--dim-1);
+    border-bottom: 1px solid var(--dim-4);
+  }
+  .more a:hover {
+    color: var(--bone);
+  }
+</style>

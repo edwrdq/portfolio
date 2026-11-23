@@ -1,0 +1,14 @@
+{
+  "name": "@edwrdq/daily",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/core.ts",
+    "./picross": "./src/picross.ts",
+    "./client": "./src/client.ts"
+  },
+  "dependencies": {
+    "@edwrdq/ui": "workspace:*"
+  }
+}

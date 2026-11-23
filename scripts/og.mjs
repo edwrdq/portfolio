@@ -135,6 +135,25 @@ const sampleArt = `data:image/png;base64,${(await readFile(join(SITE, "public/im
 const TOOLS = [
   { path: "dither", kicker: "T01 — TOOL / IMAGE", title: "dither", sub: "free online image dithering. runs in your browser.", foot: "EDWRDQ.COM/DITHER", art: { src: sampleArt, w: 576, h: 384 } },
 ];
+// an 8×8 icon as acid squares on a faint grid (picross-style) → png data uri
+async function iconArt(name, px = 40) {
+  const src = await readFile(join(ROOT, "packages/ui/src/icons.ts"), "utf8");
+  const m = src.match(new RegExp(`\\b${name}: \\[([^\\]]+)\\]`));
+  const rows = JSON.parse(`[${m[1]}]`);
+  const size = px * 8;
+  let rects = "";
+  rows.forEach((r, y) => [...r].forEach((c, x) => {
+    rects += `<rect x="${x * px + 1}" y="${y * px + 1}" width="${px - 2}" height="${px - 2}" fill="${c === "#" ? C.acid : "#141414"}"/>`;
+  }));
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" shape-rendering="crispEdges">${rects}</svg>`;
+  const png = await sharp(Buffer.from(svg)).png().toBuffer();
+  return { src: `data:image/png;base64,${png.toString("base64")}`, w: size, h: size };
+}
+const carArt = await iconArt("car");
+TOOLS.push(
+  { path: "daily", kicker: "D00 — DAILY / PUZZLES", title: "daily", sub: "a new puzzle every day. the same for everyone.", foot: "EDWRDQ.COM/DAILY", art: carArt },
+  { path: "daily/picross", kicker: "D01 — DAILY / PICROSS", title: "picross", sub: "an 8×8 nonogram, new every day.", foot: "EDWRDQ.COM/DAILY/PICROSS", art: carArt },
+);
 for (const t of TOOLS) jobs.push([t.path, card(t)]);
 
 for (const p of await posts()) {
