@@ -4,7 +4,7 @@
 export const GITHUB_USER = "edwrdq";
 const KEY = "stats:v1";
 const LOCK = "stats:lock";
-export const MAX_AGE_MS = 60 * 60 * 1000;
+export const MAX_AGE_MS = 5 * 60 * 1000; // ≤12 refreshes/hour, only when someone visits
 const UA = "edwrdq-site (+https://edwrdq.com)";
 
 // minimal shapes so this package doesn't depend on workers types
