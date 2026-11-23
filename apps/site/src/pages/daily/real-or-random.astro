@@ -1,0 +1,295 @@
+---
+// daily real or random: two charts, one real price history (eia energy prices, fed exchange
+// rates), one random walk with the same drift + volatility. rounds are precomputed into kv by
+// scripts/real-or-random.mjs; this page only reads the day's rounds.
+import DailyShell from "../../components/DailyShell.astro";
+import DailyDone from "../../components/DailyDone.astro";
+
+const title = "real or random — can you spot the real price chart?";
+const description =
+  "a free daily game: two price charts, one is real market history (oil, natural gas, currencies), the other is a random walk with the same volatility. pick the real one, 5 rounds a day.";
+const faq = [
+  {
+    q: "how is the fake chart made?",
+    a: "it's a random walk (geometric brownian motion) tuned to the real chart it's paired with: same average daily drift, same day-to-day volatility. so the size of the moves gives nothing away, only their shape.",
+  },
+  {
+    q: "how can you ever tell them apart?",
+    a: "real markets have habits a simple random walk doesn't: calm stretches and wild stretches (volatility clustering), sudden jumps, trends that run and then snap back. exchange rates also tend to drift slowly with occasional sharp breaks. look for those.",
+  },
+  {
+    q: "where does the real data come from?",
+    a: "daily spot prices from the u.s. energy information administration (wti and brent crude, henry hub natural gas) and daily exchange rates from the federal reserve board's h.10 release. both are public domain. each reveal cites its source.",
+  },
+  {
+    q: "why no stocks?",
+    a: "stock and index price histories are licensed and can't be republished freely. energy prices and exchange rates from the government are public.",
+  },
+];
+---
+
+<DailyShell game="real-or-random" title="real or random" n="D06" seoTitle={title} {description} {faq} intro="one of these is a real price chart. the other is a random walk. pick the real one." wide>
+  <div class="rr" data-rr>
+    <p class="status" data-status>loading today's charts…</p>
+    <p class="round label" data-round hidden></p>
+    <div class="charts" data-charts hidden>
+      <button type="button" class="chart" data-pick="a" aria-label="chart a"><span class="tag">A</span><svg viewBox="0 0 300 140" preserveAspectRatio="none" data-svg="a"></svg></button>
+      <button type="button" class="chart" data-pick="b" aria-label="chart b"><span class="tag">B</span><svg viewBox="0 0 300 140" preserveAspectRatio="none" data-svg="b"></svg></button>
+    </div>
+    <div class="reveal-box" data-rv hidden>
+      <p class="verdict" data-verdict></p>
+      <p class="what" data-what></p>
+      <p class="src" data-src></p>
+      <button type="button" class="btn btn-primary" data-next>NEXT ROUND</button>
+    </div>
+    <p class="dots" data-dots aria-label="results so far"></p>
+    <DailyDone />
+  </div>
+
+  <Fragment slot="how">
+    <h2 class="h">how to play</h2>
+    <ol class="steps">
+      <li>two charts, same starting point, no prices or dates. one is a real market, the other is random.</li>
+      <li>tap the one you think is real. then see what it was, when, and what happened.</li>
+      <li>five rounds a day. the random one always has the same volatility as the real one, so look at the <b>shape</b> of the moves, not the size.</li>
+    </ol>
+  </Fragment>
+</DailyShell>
+
+<script>
+  import { dayFromUrl, getDay, putDay, report } from "@edwrdq/daily/client";
+  import { showDone } from "../../lib/daily-done";
+  import type { RRDay, Round } from "@edwrdq/daily/rr";
+
+  type State = { picks: ("a" | "b")[] };
+  const ROUNDS = 5;
+
+  const root = document.querySelector<HTMLElement>("[data-rr]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const { day, archive } = dayFromUrl();
+
+    fetch(`/api/daily/rr?date=${day}`)
+      .then((r) => r.json() as Promise<Partial<RRDay>>)
+      .then((d) => (d.rounds?.length ? start(d.rounds) : ($("[data-status]").textContent = "no puzzle today. eddy slacked.")))
+      .catch(() => ($("[data-status]").textContent = "couldn't load today's charts. try again in a bit."));
+
+    const draw = (svg: SVGSVGElement, v: number[]) => {
+      const min = Math.min(...v), max = Math.max(...v);
+      const pad = (max - min) * 0.08 || 1;
+      const y = (x: number) => 140 - ((x - (min - pad)) / (max - min + 2 * pad)) * 140;
+      const ns = "http://www.w3.org/2000/svg";
+      svg.replaceChildren(
+        ...[35, 70, 105].map((gy) => {
+          const l = document.createElementNS(ns, "line");
+          for (const [k, v] of Object.entries({ x1: 0, x2: 300, y1: gy, y2: gy, class: "grid" })) l.setAttribute(k, String(v));
+          return l;
+        }),
+      );
+      const line = document.createElementNS(ns, "polyline");
+      line.setAttribute("points", v.map((x, i) => `${((i / (v.length - 1)) * 300).toFixed(2)},${y(x).toFixed(2)}`).join(" "));
+      line.setAttribute("class", "line");
+      line.setAttribute("vector-effect", "non-scaling-stroke");
+      svg.append(line);
+    };
+
+    const months = (a: string, b: string) => {
+      const m = Math.round((Date.parse(b) - Date.parse(a)) / (30.44 * 86_400_000));
+      return m >= 12 ? `${(m / 12).toFixed(m % 12 ? 1 : 0)} year${m >= 18 ? "s" : ""}` : `${m} months`;
+    };
+    const num = (v: number) => (v >= 100 ? v.toFixed(2) : v >= 10 ? v.toFixed(3) : v.toFixed(4));
+    const nice = (d: string) => new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).toLowerCase();
+
+    function start(rounds: Round[]) {
+      $("[data-status]").hidden = true;
+      const saved = getDay<State>("real-or-random", day);
+      const st: State = saved?.state ?? { picks: [] };
+      let showing = false; // between a pick and "next round"
+
+      const right = (i: number) => st.picks[i] === rounds[i].real;
+      const save = () => {
+        const rec = getDay("real-or-random", day);
+        const done = st.picks.length >= ROUNDS;
+        const score = st.picks.filter((_, i) => right(i)).length;
+        putDay("real-or-random", day, { ...rec, live: rec?.live ?? !archive, done, solved: done && score >= 3, result: done ? `${score}/${ROUNDS}` : undefined, state: st });
+      };
+
+      function render() {
+        const i = showing ? st.picks.length - 1 : st.picks.length;
+        const done = st.picks.length >= ROUNDS && !showing;
+        $("[data-charts]").hidden = done;
+        $("[data-round]").hidden = done;
+        $("[data-dots]").textContent = st.picks.map((_, k) => (right(k) ? "■" : "□")).join(" ");
+        if (done) return finish();
+        const r = rounds[i];
+        $("[data-round]").textContent = `ROUND ${i + 1} OF ${ROUNDS}`;
+        draw(root!.querySelector<SVGSVGElement>('[data-svg="a"]')!, r.a);
+        draw(root!.querySelector<SVGSVGElement>('[data-svg="b"]')!, r.b);
+        for (const b of root!.querySelectorAll<HTMLButtonElement>("[data-pick]")) {
+          const side = b.dataset.pick as "a" | "b";
+          b.classList.toggle("real", showing && r.real === side);
+          b.classList.toggle("picked", showing && st.picks[i] === side);
+          b.disabled = showing;
+          b.querySelector(".tag")!.textContent = showing ? (r.real === side ? `${side.toUpperCase()} · REAL` : `${side.toUpperCase()} · RANDOM`) : side.toUpperCase();
+        }
+        $("[data-rv]").hidden = !showing;
+        if (showing) {
+          const ok = right(i);
+          $("[data-verdict]").textContent = ok ? "right. that's the real one." : "nope. the other one was real.";
+          const pct = ((r.last / r.first - 1) * 100).toFixed(1);
+          $("[data-what]").textContent = `${r.series.name}, ${nice(r.from)} → ${nice(r.to)} (${months(r.from, r.to)}). it went from ${num(r.first)} to ${num(r.last)} ${r.series.unit}, ${Number(pct) >= 0 ? "+" : ""}${pct}%.`;
+          const src = $("[data-src]");
+          src.replaceChildren("source: ", Object.assign(document.createElement("a"), { href: r.series.url, target: "_blank", rel: "noopener", textContent: `${r.series.source} ↗` }));
+          $("[data-next]").textContent = st.picks.length >= ROUNDS ? "SEE RESULTS" : "NEXT ROUND";
+        }
+      }
+
+      for (const b of root!.querySelectorAll<HTMLButtonElement>("[data-pick]"))
+        b.addEventListener("click", () => {
+          if (showing || st.picks.length >= ROUNDS) return;
+          st.picks.push(b.dataset.pick as "a" | "b");
+          if (st.picks.length === 1) (save(), report("real-or-random", day, "play"));
+          save();
+          showing = true;
+          render();
+        });
+      $("[data-next]").addEventListener("click", () => {
+        showing = false;
+        render();
+      });
+
+      function finish() {
+        const score = st.picks.filter((_, i) => right(i)).length;
+        if (score >= 3) report("real-or-random", day, "solve");
+        root!.querySelector<HTMLElement>("[data-rv]")!.hidden = true;
+        const recap = document.createElement("ol");
+        recap.className = "recap";
+        recap.append(...rounds.map((r, i) => Object.assign(document.createElement("li"), { textContent: `${right(i) ? "■" : "□"} ${r.series.name} · ${nice(r.from)} → ${nice(r.to)}` })));
+        showDone(root!, {
+          game: "real-or-random",
+          day,
+          archive,
+          solved: score >= 3,
+          reveal: [Object.assign(document.createElement("p"), { className: "big", textContent: `${score} of ${ROUNDS} right.` }), recap],
+          score: score === 5 ? "perfect. you can read a market." : score >= 3 ? "better than a coin flip." : "the random walk got you.",
+          headline: `${score}/${ROUNDS}`,
+          line: st.picks.map((_, i) => (right(i) ? "■" : "□")).join(""),
+        });
+      }
+
+      render();
+    }
+  }
+</script>
+
+<style>
+  .rr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr); /* never wider than the screen */
+    gap: 1rem;
+  }
+  .status {
+    color: var(--dim-1);
+  }
+  .charts {
+    display: grid;
+    gap: 0.75rem;
+  }
+  @media (min-width: 720px) {
+    .charts {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .chart {
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 300 / 160;
+    padding: 1.75rem 0.5rem 0.5rem;
+    border: 1px solid var(--seam);
+    background: var(--surface);
+    transition: border-color var(--fast) var(--ease);
+  }
+  .chart:not(:disabled):hover {
+    border-color: var(--bone);
+  }
+  .chart svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .chart :global(.grid) {
+    stroke: var(--seam-soft);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  .chart :global(.line) {
+    fill: none;
+    stroke: var(--bone);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+  }
+  .chart.real :global(.line) {
+    stroke: var(--acid);
+  }
+  .chart.real {
+    border-color: var(--acid);
+  }
+  .chart.picked:not(.real) {
+    border-color: var(--dim-2);
+  }
+  .tag {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.6rem;
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-1);
+  }
+  .chart.real .tag {
+    color: var(--acid);
+  }
+  .reveal-box {
+    display: grid;
+    gap: 0.5rem;
+    padding: 1rem;
+    border: 1px solid var(--seam);
+  }
+  .reveal-box[hidden] {
+    display: none;
+  }
+  .verdict {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.4rem;
+    color: var(--bone);
+    letter-spacing: var(--track-tight);
+  }
+  .what {
+    color: var(--text);
+  }
+  .src {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .src :global(a) {
+    color: var(--dim-1);
+    border-bottom: 1px solid var(--dim-4);
+  }
+  .reveal-box .btn {
+    justify-self: start;
+    margin-top: 0.4rem;
+  }
+  .dots {
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+    letter-spacing: 0.2em;
+    min-height: 1.2em;
+  }
+  .rr :global(.recap) {
+    display: grid;
+    gap: 0.3rem;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+</style>

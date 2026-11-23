@@ -3,7 +3,7 @@
 import { env } from "cloudflare:workers";
 import type { ToolApi } from "../../lib/tools";
 import { body, fail, json } from "../../lib/http";
-import { GAMES, addDays, dayKey, isDay, isGame } from "@edwrdq/daily";
+import { GAMES, addDays, dayKey, daysBetween, isDay, isGame } from "@edwrdq/daily";
 import { checkDiagnose, checkEstimate, checkOverride, diagnoseFromRow, diagnoseToRow, estimateFromRow, overrideFromRow } from "@edwrdq/daily/curated";
 
 type Type = "diagnose" | "estimate" | "override";
@@ -34,7 +34,13 @@ export const GET: ToolApi["GET"] = async ({ url }, path) => {
         const plays7 = rows.reduce((a, r) => a + r.plays, 0);
         const solves7 = rows.reduce((a, r) => a + r.solves, 0);
         const out: Record<string, unknown> = { id: g.id, kind: g.kind, today: { plays: t?.plays ?? 0, solves: t?.solves ?? 0 }, week: { plays: plays7, solves: solves7 } };
-        if (g.id === "diagnose" || g.id === "estimate") {
+        if (g.id === "real-or-random") {
+          // rounds are precomputed into kv by scripts/real-or-random.mjs
+          const meta = (await env.STATS.get("rr:meta", "json").catch(() => null)) as { last?: string } | null;
+          out.days = meta?.last && meta.last >= today ? daysBetween(today, meta.last) + 1 : 0;
+          out.warn = (out.days as number) < WARN_DAYS;
+          out.note = "run node scripts/real-or-random.mjs, then upload with wrangler kv bulk put";
+        } else if (g.id === "diagnose" || g.id === "estimate") {
           const c = await env.DB.prepare(
             `SELECT sum(status = 'unverified') unverified, sum(status = 'approved' AND scheduled_for IS NULL) queued, sum(status = 'approved' AND scheduled_for >= ?1) upcoming FROM ${TABLE[g.id]}`,
           )
@@ -85,6 +91,11 @@ export const GET: ToolApi["GET"] = async ({ url }, path) => {
       const { results } = await env.DB.prepare(`SELECT * FROM ${TABLE[type]} ORDER BY status = 'approved', scheduled_for IS NULL, scheduled_for, id`).all<Record<string, unknown>>();
       const conv = type === "diagnose" ? diagnoseFromRow : type === "estimate" ? estimateFromRow : overrideFromRow;
       return json({ ok: true, entries: results.map((r) => conv(r)) });
+    }
+    case "rr": {
+      const date = url.searchParams.get("date");
+      if (!isDay(date)) return fail("bad date");
+      return json({ ok: true, day: await env.STATS.get(`rr:${date}`, "json") });
     }
     case "scheduled": {
       const game = url.searchParams.get("game");

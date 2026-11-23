@@ -262,7 +262,7 @@
             el("td", {}, `${g.today.solves}/${g.today.plays}`),
             el("td", {}, `${g.week.solves}/${g.week.plays}`),
             el("td", {}, pct(g.week.solves, g.week.plays)),
-            el("td", {}, g.days !== undefined ? `${g.days}${g.queued ? ` (+${g.queued} unscheduled)` : ""}` : g.upcoming ? `${g.upcoming} overrides` : "∞ generated"),
+            el("td", {}, g.days !== undefined ? `${g.days}${g.queued ? ` (+${g.queued} unscheduled)` : ""}${g.id === "real-or-random" ? " precomputed" : ""}` : g.upcoming ? `${g.upcoming} overrides` : "∞ generated"),
             el("td", {}, String(g.unverified ?? 0)),
           ),
         ),
@@ -270,7 +270,7 @@
       $("[data-warns]").replaceChildren(
         ...games
           .filter((g: any) => g.warn)
-          .map((g: any) => el("p", {}, g.days === 0 ? `${g.id} has nothing for today. the page says “no puzzle today. eddy slacked.”` : `${g.id} only has ${g.days} day${g.days === 1 ? "" : "s"} queued (under 14). approve + schedule more.`)),
+          .map((g: any) => el("p", {}, g.days === 0 ? `${g.id} has nothing for today. the page says “no puzzle today. eddy slacked.”${g.note ? ` (${g.note})` : ""}` : `${g.id} only has ${g.days} day${g.days === 1 ? "" : "s"} queued (under 14). ${g.note ?? "approve + schedule more."}`)),
       );
     }
 
@@ -336,6 +336,10 @@
       } else if (game === "logic") {
         const k = dailyKK(date);
         text += `generated knights & knaves (no curated entry)\n\n${k.says.map((s, i) => `${k.names[i]}: “${say(s, i, k.names)}”`).join("\n")}\n\nanswer: ${k.names.map((n, i) => `${n}=${k.solution[i] ? "knight" : "knave"}`).join("  ")}`;
+      } else if (game === "real-or-random") {
+        const { day } = await api(`rr?date=${date}`);
+        if (!day) text += "no rounds precomputed for this day → re-run scripts/real-or-random.mjs";
+        else text += day.rounds.map((r: any, i: number) => `round ${i + 1}: real = ${r.real.toUpperCase()} · ${r.series.name} · ${r.from} → ${r.to} · ${r.first} → ${r.last} ${r.series.unit} (${r.a.length} days)`).join("\n");
       } else text += "nothing scheduled → the page shows “no puzzle today. eddy slacked.”";
       out.textContent = text;
     });

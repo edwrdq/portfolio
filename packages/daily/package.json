@@ -10,7 +10,8 @@
     "./locate": "./src/locate.ts",
     "./asm": "./src/asm.ts",
     "./logic": "./src/logic.ts",
-    "./curated": "./src/curated.ts"
+    "./curated": "./src/curated.ts",
+    "./rr": "./src/rr.ts"
   },
   "dependencies": {
     "@edwrdq/ui": "workspace:*"

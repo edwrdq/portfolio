@@ -158,7 +158,8 @@ TOOLS.push(
   await dailyCard("D03", "asm", "read some x86-64. what's in rax?", "chip"),
   await dailyCard("D04", "diagnose", "what's wrong with the car? fewest clues wins.", "car"),
   await dailyCard("D05", "logic", "knights, knaves, and proofs.", "pen"),
-  await dailyCard("D06", "estimate", "one fermi question. get within 2×.", "chart"),
+  { ...(await dailyCard("D06", "real-or-random", "one chart is real. one is a random walk.", "chart")), title: "real or random", kicker: "D06 — DAILY / REAL OR RANDOM" },
+  await dailyCard("D07", "estimate", "one fermi question. get within 2×.", "dither"),
 );
 for (const t of TOOLS) jobs.push([t.path, card(t)]);
 

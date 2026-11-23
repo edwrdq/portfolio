@@ -17,13 +17,15 @@ interface Props {
   intro: string;
   faq: { q: string; a: string }[];
   wide?: boolean;
+  /** display name when it differs from the id ("real or random") */
+  title?: string;
 }
-const { game, n, seoTitle, description, intro, faq, wide = false } = Astro.props;
+const { game, n, seoTitle, description, intro, faq, wide = false, title = game } = Astro.props;
 ---
 
 <Base title={seoTitle} description={description} og={`daily/${game}`}>
-  <script type="application/ld+json" slot="head" set:html={gameLd({ path: `/daily/${game}`, name: `daily ${game}`, description, faq, og: `daily/${game}` })} />
-  <PageHead n={n} label={`DAILY — ${game.toUpperCase()}`} title={game} intro={intro} />
+  <script type="application/ld+json" slot="head" set:html={gameLd({ path: `/daily/${game}`, name: `daily ${title}`, description, faq, og: `daily/${game}` })} />
+  <PageHead n={n} label={`DAILY — ${title.toUpperCase()}`} title={title} intro={intro} />
 
   <section class:list={["game gutter", wide && "wide"]} aria-label={`today's ${game}`}>
     <DailyNav game={game} />
