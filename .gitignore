@@ -1,2 +1,14 @@
-node_modules
-raw
+node_modules/
+raw/
+
+# build output + generated files
+dist/
+.astro/
+apps/site/public/og/
+
+# local wrangler state (local d1/kv/r2 test data) + local secrets
+.wrangler/
+.dev.vars*
+.env*
+
+.DS_Store
