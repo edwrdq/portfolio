@@ -44,6 +44,10 @@ const projects = defineCollection({
     date: roughDate,
     /** optional end date, used by the work timeline */
     end: roughDate.optional(),
+    /** work timeline: where (shown under the role) */
+    org: z.string().optional(),
+    /** work timeline: replaces the whole date range text, e.g. "????—now". date still sorts. */
+    when: z.string().optional(),
     summary: z.string(),
     /** optional — leave it off for things that aren't projects (e.g. music taste) */
     status: z.enum(["active", "shipped", "planned", "archived"]).optional(),

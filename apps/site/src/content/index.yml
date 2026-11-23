@@ -2,7 +2,7 @@
 - id: indicatoriq
   title: indicatoriq
   desc: fintech / algorithms
-  intro: "fintech + algorithms. the company."
+  intro: "a ton of market data, boiled down to a few numbers that tell you how it's looking. nothing hidden. just the algorithms finance already uses."
   icon: chart
   href: /indicatoriq
 
@@ -44,8 +44,8 @@
 
 - id: work
   title: work + experience
-  desc: shop
-  intro: "where i've worked."
+  desc: jobs / robotics
+  intro: "where i've worked, and what got me here."
   icon: case
   href: /work
 
