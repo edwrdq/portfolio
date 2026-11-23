@@ -1,0 +1,87 @@
+---
+// page frame for every daily game: seo head (Game + FAQPage json-ld), title block, the daily nav,
+// the game itself (default slot), a plain-html explainer (slot "how") and the faq.
+import Base from "../layouts/Base.astro";
+import PageHead from "./PageHead.astro";
+import ToolFoot from "./ToolFoot.astro";
+import DailyNav from "./DailyNav.astro";
+import Faq from "./Faq.astro";
+import { gameLd } from "../lib/ld";
+import type { GameId } from "@edwrdq/daily";
+
+interface Props {
+  game: GameId;
+  n: string;
+  seoTitle: string;
+  description: string;
+  intro: string;
+  faq: { q: string; a: string }[];
+  wide?: boolean;
+}
+const { game, n, seoTitle, description, intro, faq, wide = false } = Astro.props;
+---
+
+<Base title={seoTitle} description={description} og={`daily/${game}`}>
+  <script type="application/ld+json" slot="head" set:html={gameLd({ path: `/daily/${game}`, name: `daily ${game}`, description, faq, og: `daily/${game}` })} />
+  <PageHead n={n} label={`DAILY — ${game.toUpperCase()}`} title={game} intro={intro} />
+
+  <section class:list={["game gutter", wide && "wide"]} aria-label={`today's ${game}`}>
+    <DailyNav game={game} />
+    <slot />
+  </section>
+
+  <section class="explain gutter" aria-label="how it works">
+    <slot name="how" />
+    <Faq items={faq} />
+  </section>
+
+  <ToolFoot />
+</Base>
+
+<style>
+  .game {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    max-width: 36rem;
+  }
+  .game.wide {
+    max-width: 48rem;
+  }
+  .explain {
+    margin-top: var(--section);
+    display: grid;
+    gap: 1.5rem;
+  }
+  .explain :global(h2.h) {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.75rem, 5vw, 2.5rem);
+    letter-spacing: var(--track-tight);
+    line-height: 1;
+    color: var(--bone);
+  }
+  .explain :global(.steps) {
+    list-style: decimal-leading-zero;
+    padding-left: 2.5em;
+    display: grid;
+    gap: 0.6rem;
+    max-width: 60ch;
+  }
+  .explain :global(.steps ::marker) {
+    color: var(--dim-2);
+  }
+  .explain :global(.prose-ish) {
+    display: grid;
+    gap: 0.9rem;
+    max-width: 62ch;
+    color: var(--text);
+  }
+  .explain :global(b) {
+    font-weight: 400;
+    color: var(--bone);
+  }
+  .explain :global(.faq-h) {
+    margin-top: 2rem;
+  }
+</style>

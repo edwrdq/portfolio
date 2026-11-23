@@ -117,8 +117,15 @@ export const dailyRng = (game: string, day: string) => rng(`edwrdq:${game}:${day
 
 // ---------------------------------------------------------------- games
 
-export type GameId = "picross";
-export const GAMES: { id: GameId; name: string; blurb: string; href: string }[] = [
-  { id: "picross", name: "picross", blurb: "an 8×8 nonogram. the answer is a pixel icon.", href: "/daily/picross" },
+export type GameId = "picross" | "locate" | "asm" | "diagnose" | "logic" | "estimate";
+/** generated: made from the seed (never runs out). curated: from the bank in admin. mixed: curated if scheduled, else generated. */
+export type GameKind = "generated" | "curated" | "mixed";
+export const GAMES: { id: GameId; name: string; blurb: string; href: string; kind: GameKind }[] = [
+  { id: "picross", name: "picross", blurb: "an 8×8 nonogram. the answer is a pixel icon.", href: "/daily/picross", kind: "generated" },
+  { id: "locate", name: "locate", blurb: "find a hidden robot from noisy sensor readings.", href: "/daily/locate", kind: "generated" },
+  { id: "asm", name: "asm", blurb: "read some x86-64. what's in rax?", href: "/daily/asm", kind: "mixed" },
+  { id: "diagnose", name: "diagnose", blurb: "what's wrong with the car? fewest clues wins.", href: "/daily/diagnose", kind: "curated" },
+  { id: "logic", name: "logic", blurb: "knights, knaves, and proofs.", href: "/daily/logic", kind: "mixed" },
+  { id: "estimate", name: "estimate", blurb: "a fermi question. get within 2×.", href: "/daily/estimate", kind: "curated" },
 ];
 export const isGame = (s: unknown): s is GameId => GAMES.some((g) => g.id === s);

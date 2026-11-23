@@ -1,12 +1,8 @@
 ---
 // daily picross. the puzzle is generated in the browser from the day's seed (packages/daily),
 // so this page is static: the html carries the rules + faq, js draws today's board.
-import Base from "../../layouts/Base.astro";
-import PageHead from "../../components/PageHead.astro";
-import ToolFoot from "../../components/ToolFoot.astro";
-import DailyNav from "../../components/DailyNav.astro";
-import Faq from "../../components/Faq.astro";
-import { gameLd } from "../../lib/ld";
+import DailyShell from "../../components/DailyShell.astro";
+import DailyDone from "../../components/DailyDone.astro";
 
 const title = "daily picross — a free 8×8 nonogram every day";
 const description =
@@ -32,14 +28,8 @@ const faq = [
 ];
 ---
 
-<Base title={title} description={description} og="daily/picross">
-  <script type="application/ld+json" slot="head" set:html={gameLd({ path: "/daily/picross", name: "daily picross", description, faq, og: "daily/picross" })} />
-
-  <PageHead n="D01" label="DAILY — PICROSS" title="picross" intro="an 8×8 nonogram, new every day. the answer is a pixel icon." />
-
-  <section class="game gutter" aria-label="today's picross" data-picross>
-    <DailyNav game="picross" />
-
+<DailyShell game="picross" n="D01" seoTitle={title} {description} {faq} intro="an 8×8 nonogram, new every day. the answer is a pixel icon.">
+  <div class="pc" data-picross>
     <div class="hud">
       <div class="modes" role="group" aria-label="tap mode">
         <button type="button" class="btn sm" data-mode="fill" aria-pressed="true">■ FILL</button>
@@ -54,40 +44,24 @@ const faq = [
       </div>
     </div>
     <p class="hint">tap to fill · long-press or switch to × to mark empty · drag to do a whole line</p>
+    <DailyDone />
+  </div>
 
-    <div class="done" data-done hidden>
-      <p class="label" data-done-label>SOLVED</p>
-      <p class="reveal" data-reveal></p>
-      <p class="score" data-score></p>
-      <div class="row">
-        <button type="button" class="btn btn-primary" data-share>SHARE</button>
-        <span class="shared" data-shared aria-live="polite"></span>
-      </div>
-      <pre class="share-preview" data-share-preview></pre>
-      <dl class="stats" data-stats></dl>
-      <p class="next" data-next></p>
-    </div>
-  </section>
-
-  <section class="explain gutter" aria-labelledby="how">
-    <h2 class="h" id="how">how to play</h2>
+  <Fragment slot="how">
+    <h2 class="h">how to play</h2>
     <ol class="steps">
       <li>the numbers left of each row and above each column are the runs of filled squares in that line, in order.</li>
       <li>tap a square to fill it. long-press, or switch to <b>× mark</b>, to mark one as empty.</li>
       <li>filling a square that should be empty is a mistake. it's marked for you, and it counts.</li>
       <li>fill every square that belongs to the picture and you've solved it. about a third of days it's one of this site's own icons.</li>
     </ol>
-
-    <Faq items={faq} />
-  </section>
-
-  <ToolFoot />
-</Base>
+  </Fragment>
+</DailyShell>
 
 <script>
   import { dailyPicross, N } from "@edwrdq/daily/picross";
-  import { clock, dayFromUrl, getDay, putDay, report, share, shareText, solveRate, stats } from "@edwrdq/daily/client";
-  import { msToNextDay } from "@edwrdq/daily";
+  import { clock, dayFromUrl, getDay, putDay, report } from "@edwrdq/daily/client";
+  import { showDone } from "../../lib/daily-done";
 
   // 0 unknown · 1 filled · 2 marked x · 3 mistake (auto x)
   type State = { cells: number[]; mistakes: number; elapsed: number };
@@ -286,62 +260,36 @@ const faq = [
       report("picross", day, "play");
       report("picross", day, "solve");
       paint();
-      showDone();
+      showResult();
     }
 
-    async function showDone() {
+    function showResult() {
       root!.classList.add("is-done");
-      $("[data-done]").hidden = false;
-      $("[data-reveal]").textContent = p.name ? `it's the site's “${p.name}” icon.` : "a one-off icon, generated for today.";
       const m = st.mistakes;
-      $("[data-score]").textContent = `${clock(st.elapsed)} · ${m === 0 ? "no mistakes" : m === 1 ? "1 mistake" : `${m} mistakes`}`;
-      const bar = "■".repeat(Math.max(0, 5 - m)) + "□".repeat(Math.min(5, m));
-      const text = shareText("picross", day, clock(st.elapsed), `${bar} ${m} ${m === 1 ? "mistake" : "mistakes"}`);
-      $("[data-share-preview]").textContent = text;
-      $("[data-share]").onclick = async () => {
-        const r = await share(text);
-        $("[data-shared]").textContent = r === "copied" ? "copied." : r === "shared" ? "" : "couldn't share. copy it from below.";
-      };
-      const s = stats("picross");
-      const dl = $("[data-stats]");
-      dl.replaceChildren(
-        ...(
-          [
-            ["played", s.played],
-            ["solved", s.solved],
-            ["streak", s.streak],
-            ["best", s.best],
-          ] as const
-        ).flatMap(([k, v]) => [Object.assign(document.createElement("dt"), { textContent: k }), Object.assign(document.createElement("dd"), { textContent: String(v) })]),
-      );
-      const next = $("[data-next]");
-      if (archive) next.textContent = "archive puzzles don't count toward your streak.";
-      else {
-        const tick = () => {
-          const ms = msToNextDay();
-          next.textContent = `next picross in ${clock(ms)}`;
-        };
-        tick();
-        setInterval(tick, 1000);
-      }
-      const rate = await solveRate("picross", day);
-      if (rate && rate.plays >= 5) {
-        const pct = Math.round((rate.solves / rate.plays) * 100);
-        dl.append(Object.assign(document.createElement("dt"), { textContent: "solved today" }), Object.assign(document.createElement("dd"), { textContent: `${pct}%` }));
-      }
+      const mistakes = m === 1 ? "1 mistake" : `${m} mistakes`;
+      showDone(root!, {
+        game: "picross",
+        day,
+        archive,
+        solved: true,
+        reveal: [Object.assign(document.createElement("p"), { className: "big", textContent: p.name ? `it's the site's “${p.name}” icon.` : "a one-off icon, generated for today." })],
+        score: `${clock(st.elapsed)} · ${m === 0 ? "no mistakes" : mistakes}`,
+        headline: clock(st.elapsed),
+        line: `${"■".repeat(Math.max(0, 5 - m))}${"□".repeat(Math.min(5, m))} ${mistakes}`,
+      });
     }
 
     paint();
-    if (done) showDone();
+    if (done) showResult();
     else if (st.cells.some((v) => v)) start();
   }
 </script>
 
 <style>
-  .game {
+  .pc {
     display: grid;
+    grid-template-columns: minmax(0, 1fr); /* never wider than the screen */
     gap: 1rem;
-    max-width: 34rem;
   }
   .hud {
     display: flex;
@@ -477,90 +425,5 @@ const faq = [
   .hint {
     font-size: var(--fs-small);
     color: var(--dim-2);
-  }
-  .done {
-    display: grid;
-    gap: 0.75rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--seam);
-  }
-  .reveal {
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 1.5rem;
-    letter-spacing: var(--track-tight);
-    color: var(--bone);
-  }
-  .score {
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  .shared {
-    font-size: var(--fs-small);
-    color: var(--dim-1);
-  }
-  .share-preview {
-    font-family: var(--font-mono);
-    font-size: var(--fs-small);
-    color: var(--dim-1);
-    white-space: pre-wrap;
-    padding: 0.75rem;
-    border: 1px solid var(--seam-soft);
-  }
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
-    grid-auto-flow: dense;
-  }
-  .stats :global(dt) {
-    grid-row: 2;
-    font-size: var(--fs-micro);
-    letter-spacing: var(--track-label);
-    text-transform: uppercase;
-    color: var(--dim-2);
-  }
-  .stats :global(dd) {
-    grid-row: 1;
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 1.75rem;
-    color: var(--bone);
-  }
-  .next {
-    font-size: var(--fs-small);
-    color: var(--dim-2);
-    font-variant-numeric: tabular-nums;
-  }
-  .explain {
-    margin-top: var(--section);
-    display: grid;
-    gap: 1.5rem;
-  }
-  .h {
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: clamp(1.75rem, 5vw, 2.5rem);
-    letter-spacing: var(--track-tight);
-    line-height: 1;
-    color: var(--bone);
-  }
-  .steps {
-    list-style: decimal-leading-zero;
-    padding-left: 2.5em;
-    display: grid;
-    gap: 0.6rem;
-    max-width: 60ch;
-  }
-  .steps ::marker {
-    color: var(--dim-2);
-  }
-  .steps b {
-    font-weight: 400;
-    color: var(--bone);
   }
 </style>

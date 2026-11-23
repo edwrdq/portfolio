@@ -1,0 +1,309 @@
+---
+// daily asm: read a short x86-64 snippet, say what's in a register at the end. generated from the
+// day's seed (easy monday → hard sunday) unless eddy scheduled a hand-written one in admin.
+import DailyShell from "../../components/DailyShell.astro";
+import DailyDone from "../../components/DailyDone.astro";
+
+const title = "daily asm — an x86-64 assembly puzzle every day";
+const description =
+  "a free daily x86 assembly puzzle: read a short x86-64 snippet (intel syntax) and work out what's in rax at the end. easy on monday, hard on sunday, with a step-by-step register table after. learn assembly one puzzle at a time.";
+const faq = [
+  {
+    q: "what instructions show up?",
+    a: "mov, add, sub, imul, and, or, xor, not, neg, shl, shr, sar, inc, dec, lea, cmp with conditional jumps, push, pop, xchg, and small loops. all registers are 64-bit and wrap around like real hardware.",
+  },
+  {
+    q: "how do i enter a negative number?",
+    a: "type it with a minus sign (-14) or as the full 64-bit hex value (0xfffffffffffffff2). both count. too high / too low compares as unsigned, the way the cpu stores it.",
+  },
+  {
+    q: "what's the difference between shr and sar?",
+    a: "both shift right. shr fills the top with zeros (unsigned divide by 2ⁿ). sar copies the sign bit (signed divide by 2ⁿ, rounding toward negative infinity). they only differ when the top bit is set.",
+  },
+  {
+    q: "how hard is it?",
+    a: "monday is a handful of adds and moves. by the weekend you'll see loops, signed/unsigned jumps and flag questions. the step-by-step table after each puzzle shows every register change.",
+  },
+];
+---
+
+<DailyShell game="asm" n="D03" seoTitle={title} {description} {faq} intro="some x86-64. read it, run it in your head, say what's left in the register.">
+  <div class="as" data-asm>
+    <p class="q" data-q>loading today's snippet…</p>
+    <pre class="code" data-code aria-label="the snippet"></pre>
+    <form class="ans" data-form>
+      <label class="sr-only" for="asm-in">your answer</label>
+      <input id="asm-in" class="field" data-in inputmode="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="decimal or 0x…" />
+      <button type="submit" class="btn btn-primary" data-submit>CHECK</button>
+    </form>
+    <div class="flagbtns" data-flagbtns hidden>
+      <button type="button" class="btn" data-flag="0">0</button>
+      <button type="button" class="btn" data-flag="1">1</button>
+    </div>
+    <ol class="tries" data-tries></ol>
+    <p class="hint" data-hint></p>
+
+    <DailyDone />
+    <details class="work" data-work hidden>
+      <summary>show work</summary>
+      <div class="tbl-wrap"><table data-table></table></div>
+    </details>
+  </div>
+
+  <Fragment slot="how">
+    <h2 class="h">how to play</h2>
+    <ol class="steps">
+      <li>read the snippet top to bottom. registers start at 0, the stack pointer starts at 0x7fff0000.</li>
+      <li>work out the value the question asks for when the last line has run.</li>
+      <li>type it in decimal or hex. you get 3 tries, each with a too high / too low hint (unsigned).</li>
+      <li>flag questions (zf, cf, sf) are a single 0 or 1. one shot.</li>
+    </ol>
+  </Fragment>
+</DailyShell>
+
+<script>
+  import { answer, difficultyFor, dailyAsm, hex, parseGuess, run, parse, s64, targetLabel, REGS, type AsmPuzzle, type Reg } from "@edwrdq/daily/asm";
+  import { dayFromUrl, getDay, putDay, report } from "@edwrdq/daily/client";
+  import { showDone } from "../../lib/daily-done";
+
+  type State = { tries: string[]; solved: boolean };
+  const TRIES = 3;
+  const DAYNAME = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+  const root = document.querySelector<HTMLElement>("[data-asm]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const { day, archive } = dayFromUrl();
+
+    // hand-written override from admin wins; otherwise today's generated snippet
+    const load = async (): Promise<AsmPuzzle> => {
+      try {
+        const r = await fetch(`/api/daily/puzzle?game=asm&date=${day}`);
+        const j = (await r.json()) as { puzzle?: { kind: string; data: { src: string; target: AsmPuzzle["target"] } } | null };
+        if (j.puzzle?.kind === "asm") return { ...j.puzzle.data, difficulty: difficultyFor(day), source: "curated" };
+      } catch {
+        /* offline / api down: the generated one is always there */
+      }
+      return dailyAsm(day);
+    };
+
+    load().then((p) => {
+      const ans = answer(p);
+      const isFlag = p.target.k === "flag";
+      const max = isFlag ? 1 : TRIES;
+      const saved = getDay<State>("asm", day);
+      const st: State = saved?.state ?? { tries: [], solved: false };
+      let done = !!saved?.done;
+
+      const d = p.difficulty;
+      $("[data-q]").textContent = `${DAYNAME[new Date(day + "T12:00:00Z").getUTCDay()]} · ${d <= 2 ? "easy" : d <= 4 ? "medium" : "hard"}${p.source === "curated" ? " · hand-picked" : ""} — what's in ${targetLabel(p.target)} at the end?`;
+
+      // light highlighting: mnemonic, registers, numbers, labels (text nodes only, no html)
+      const code = $("[data-code]");
+      code.replaceChildren();
+      for (const raw of p.src.split("\n")) {
+        const line = document.createElement("span");
+        line.className = "ln";
+        const comment = raw.indexOf(";");
+        const body = comment >= 0 ? raw.slice(0, comment) : raw;
+        for (const tok of body.split(/(\s+|,|\[|\]|\+|\*)/).filter((t) => t !== "")) {
+          const s = document.createElement("span");
+          s.textContent = tok;
+          const t = tok.toLowerCase();
+          if (/^[a-z_.][a-z0-9_.]*:$/.test(t)) s.className = "lbl";
+          else if ((REGS as readonly string[]).includes(t)) s.className = "reg";
+          else if (/^-?(0x[0-9a-f]+|\d+)$/.test(t)) s.className = "num";
+          else if (/^[a-z]+$/.test(t) && line.querySelector(".op") === null) s.className = "op";
+          line.append(s);
+        }
+        if (comment >= 0) line.append(Object.assign(document.createElement("span"), { className: "cmt", textContent: raw.slice(comment) }));
+        code.append(line, "\n");
+      }
+
+      const save = () => {
+        const rec = getDay("asm", day);
+        const finished = st.solved || st.tries.length >= max;
+        putDay("asm", day, { ...rec, live: rec?.live ?? !archive, done: finished, solved: st.solved, result: finished ? (st.solved ? `${st.tries.length}/${max}` : `x/${max}`) : undefined, state: st });
+      };
+
+      function render() {
+        const finished = st.solved || st.tries.length >= max;
+        $("[data-form]").hidden = isFlag || finished;
+        $("[data-flagbtns]").hidden = !isFlag || finished;
+        $("[data-tries]").replaceChildren(
+          ...st.tries.map((t, i) => {
+            const g = parseGuess(t)!;
+            const verdict = g === ans ? "correct" : g > ans ? "too high" : "too low";
+            return Object.assign(document.createElement("li"), { textContent: `${i + 1}. ${t} — ${isFlag ? (g === ans ? "correct" : "nope") : verdict}`, className: g === ans ? "ok" : "" });
+          }),
+        );
+        $("[data-hint]").textContent = finished || isFlag ? "" : `${max - st.tries.length} ${max - st.tries.length === 1 ? "try" : "tries"} left.`;
+      }
+
+      function submit(raw: string) {
+        if (done) return;
+        const g = parseGuess(raw);
+        if (g === null) return void ($("[data-hint]").textContent = "that's not a number. try 42, -7 or 0x2a.");
+        if (isFlag && g > 1n) return void ($("[data-hint]").textContent = "flags are 0 or 1.");
+        st.tries.push(raw.trim());
+        if (st.tries.length === 1) (save(), report("asm", day, "play"));
+        if (g === ans) st.solved = true;
+        save();
+        render();
+        if (st.solved || st.tries.length >= max) finish();
+      }
+      $("[data-form]").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const input = $<HTMLInputElement>("[data-in]");
+        submit(input.value);
+        input.value = "";
+      });
+      for (const b of root!.querySelectorAll<HTMLButtonElement>("[data-flag]")) b.addEventListener("click", () => submit(b.dataset.flag!));
+
+      function finish() {
+        done = true;
+        save();
+        if (st.solved) report("asm", day, "solve");
+        showResult();
+      }
+
+      function showResult() {
+        const n = st.tries.length;
+        const val = isFlag ? String(ans) : `${s64(ans)}${s64(ans) < 0n ? ` (${hex(ans)} unsigned)` : ` (${hex(ans)})`}`;
+        showDone(root!, {
+          game: "asm",
+          day,
+          archive,
+          solved: st.solved,
+          reveal: [Object.assign(document.createElement("p"), { className: "big", textContent: `${targetLabel(p.target).replace(/ \(0 or 1\)/, "")} = ${val}` })],
+          score: st.solved ? `got it in ${n}/${max}` : `out of tries`,
+          headline: st.solved ? `${n}/${max}` : `x/${max}`,
+          line: st.solved ? "■".repeat(n) + "□".repeat(max - n) : "×".repeat(max),
+        });
+        // show work: every executed instruction and what it changed
+        const { steps } = run(parse(p.src));
+        const table = $<HTMLTableElement>("[data-table]");
+        const head = document.createElement("tr");
+        for (const h of ["#", "instruction", "changed", "flags"]) head.append(Object.assign(document.createElement("th"), { textContent: h }));
+        const rows = [head];
+        let prev: Record<Reg, bigint> = Object.fromEntries(REGS.map((r) => [r, r === "rsp" ? 0x7fff0000n : 0n])) as Record<Reg, bigint>;
+        steps.forEach((s, i) => {
+          const tr = document.createElement("tr");
+          const changed = REGS.filter((r) => s.regs[r] !== prev[r]).map((r) => `${r}=${r === "rsp" ? hex(s.regs[r]) : s64(s.regs[r])}`);
+          const f = s.flags;
+          tr.append(
+            Object.assign(document.createElement("td"), { textContent: String(i + 1) }),
+            Object.assign(document.createElement("td"), { textContent: s.text }),
+            Object.assign(document.createElement("td"), { textContent: changed.join("  ") || "—" }),
+            Object.assign(document.createElement("td"), { textContent: `${f.zf ? "Z" : "·"}${f.sf ? "S" : "·"}${f.cf ? "C" : "·"}${f.of ? "O" : "·"}` }),
+          );
+          rows.push(tr);
+          prev = s.regs;
+        });
+        table.replaceChildren(...rows);
+        $("[data-work]").hidden = false;
+      }
+
+      render();
+      if (done) showResult();
+    });
+  }
+</script>
+
+<style>
+  .as {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr); /* never wider than the screen */
+    gap: 1rem;
+  }
+  .q {
+    color: var(--text);
+  }
+  .code {
+    font-family: var(--font-mono);
+    font-size: var(--fs-read);
+    line-height: 1.7;
+    background: var(--surface);
+    border: 1px solid var(--seam);
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    color: var(--dim-1);
+    min-height: 8rem;
+  }
+  .code :global(.op) {
+    color: var(--bone);
+  }
+  .code :global(.reg) {
+    color: var(--text);
+  }
+  .code :global(.num) {
+    color: var(--dim-1);
+  }
+  .code :global(.lbl) {
+    color: var(--dim-2);
+  }
+  .code :global(.cmt) {
+    color: var(--dim-3);
+  }
+  .ans {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem;
+  }
+  .ans[hidden] {
+    display: none;
+  }
+  .flagbtns {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .flagbtns .btn {
+    min-width: 4rem;
+  }
+  .tries {
+    display: grid;
+    gap: 0.3rem;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+    font-variant-numeric: tabular-nums;
+  }
+  .tries :global(li.ok) {
+    color: var(--bone);
+  }
+  .hint {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .work summary {
+    cursor: pointer;
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+    color: var(--dim-1);
+    padding-block: 0.5rem;
+  }
+  .tbl-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--seam-soft);
+  }
+  .work :global(table) {
+    border-collapse: collapse;
+    font-size: var(--fs-small);
+    width: 100%;
+    font-variant-numeric: tabular-nums;
+  }
+  .work :global(th),
+  .work :global(td) {
+    text-align: left;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--seam-soft);
+    white-space: nowrap;
+  }
+  .work :global(th) {
+    color: var(--dim-2);
+    font-weight: 400;
+  }
+  .work :global(td:nth-child(2)) {
+    color: var(--bone);
+  }
+</style>

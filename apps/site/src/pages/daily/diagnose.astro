@@ -1,0 +1,273 @@
+---
+// daily diagnose: a shop wordle. a car comes in, clues unlock one at a time, guess the cause
+// with as few as possible. cases come from the bank in admin (eddy approves every one).
+import DailyShell from "../../components/DailyShell.astro";
+import DailyDone from "../../components/DailyDone.astro";
+
+const title = "daily diagnose — a car diagnosis puzzle with real obd2 codes";
+const description =
+  "a free daily car diagnosis game: read the complaint, symptoms, obd2 trouble codes, live data like fuel trims and o2 voltages, and a test result. figure out what's wrong with as few clues as possible.";
+const faq = [
+  {
+    q: "what are fuel trims (stft / ltft)?",
+    a: "how much the engine computer is adding or pulling fuel to hit the right air/fuel ratio. positive means it's adding fuel because it sees a lean mixture (extra air, or not enough fuel). short term reacts instantly, long term is the learned correction. roughly ±10% total is normal.",
+  },
+  {
+    q: "what does p0171 mean?",
+    a: "system too lean, bank 1. the computer hit the limit of how much fuel it can add. it's a symptom, not a part: vacuum leaks, a dirty maf, weak fuel delivery or an exhaust leak before the o2 sensor can all set it.",
+  },
+  {
+    q: "where do the cases come from?",
+    a: "classic failures every tech runs into, plus real repairs from a shop in miami as they come in. every case is checked by hand before it goes live.",
+  },
+  {
+    q: "how is it scored?",
+    a: "by how many clues you needed. guessing right after the first clue is 1/5. you get one guess per clue; a wrong guess unlocks the next one.",
+  },
+];
+---
+
+<DailyShell game="diagnose" n="D04" seoTitle={title} {description} {faq} intro="a car comes into the shop. figure out what's wrong with as few clues as you can." wide>
+  <div class="dg" data-diag>
+    <p class="loading" data-status>pulling today's work order…</p>
+    <ol class="clues" data-clues></ol>
+    <div class="guess" data-guessbox hidden>
+      <p class="label">YOUR CALL</p>
+      <div class="choices" data-choices role="radiogroup" aria-label="possible causes"></div>
+      <div class="row">
+        <button type="button" class="btn btn-primary" data-go disabled>GUESS</button>
+        <span class="hint" data-hint></span>
+      </div>
+    </div>
+    <DailyDone />
+  </div>
+
+  <Fragment slot="how">
+    <h2 class="h">how to play</h2>
+    <ol class="steps">
+      <li>start with the work order: the car and what the customer says.</li>
+      <li>pick the cause you think it is and guess. wrong? the next clue unlocks: symptoms, then the <b>obd2 codes</b>, then <b>live data</b> from the scan tool, then a test result.</li>
+      <li>five clues, one guess per clue. fewer clues = better score.</li>
+      <li>the reveal walks through how each clue pointed to the answer.</li>
+    </ol>
+  </Fragment>
+</DailyShell>
+
+<script>
+  import { dayFromUrl, getDay, putDay, report } from "@edwrdq/daily/client";
+  import { showDone, para } from "../../lib/daily-done";
+  import type { DiagnoseCase } from "@edwrdq/daily/curated";
+
+  type Case = Omit<DiagnoseCase, "flags"> & { id: number };
+  type State = { guesses: string[]; solved: boolean; caseId: number };
+  const CLUES = 5;
+
+  const root = document.querySelector<HTMLElement>("[data-diag]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (string | Node)[]) => {
+      const e = Object.assign(document.createElement(tag), props);
+      e.append(...kids);
+      return e;
+    };
+    const { day, archive } = dayFromUrl();
+
+    fetch(`/api/daily/puzzle?game=diagnose&date=${day}`)
+      .then((r) => r.json() as Promise<{ puzzle?: { kind: string; data: Case } | null }>)
+      .then((j) => (j.puzzle?.kind === "diagnose" ? start(j.puzzle.data) : ($("[data-status]").textContent = "no puzzle today. eddy slacked.")))
+      .catch(() => ($("[data-status]").textContent = "couldn't load today's case. try again in a bit."));
+
+    function start(c: Case) {
+      $("[data-status]").hidden = true;
+      const saved = getDay<State>("diagnose", day);
+      const st: State = saved?.state && saved.state.caseId === c.id ? saved.state : { guesses: [], solved: false, caseId: c.id };
+      let done = !!saved?.done && saved.state?.caseId === c.id;
+      let pick = "";
+
+      const clue = (i: number): HTMLElement => {
+        const v = c.vehicle;
+        const head = (n: number, t: string) => el("p", { className: "label" }, `CLUE ${n} · ${t}`);
+        if (i === 0)
+          return el("li", { className: "card" }, head(1, "WORK ORDER"), el("p", { className: "car" }, `${v.year} ${v.make} ${v.model}`), el("p", { className: "dim" }, `${v.engine}${v.miles ? ` · ${v.miles.toLocaleString("en-US")} mi` : ""}`), el("p", { className: "complaint" }, `customer says: “${c.complaint}”`));
+        if (i === 1) return el("li", { className: "card" }, head(2, "WHAT THE TECH NOTICES"), el("ul", { className: "bul" }, ...c.symptoms.map((s) => el("li", {}, s))));
+        if (i === 2) {
+          const scr = el("pre", { className: "scan" });
+          scr.textContent = c.codes.length ? ["DTC     STATUS     DESCRIPTION", ...c.codes.map((k) => `${k.code.padEnd(8)}${k.status.toUpperCase().padEnd(11)}${k.desc.toUpperCase()}`)].join("\n") : "NO DTCs STORED";
+          return el("li", { className: "card" }, head(3, "SCAN TOOL · CODES"), scr);
+        }
+        if (i === 3) {
+          const w = Math.max(...c.live.map((r) => r.label.length)) + 2;
+          const scr = el("pre", { className: "scan" });
+          scr.textContent = c.live.map((r) => `${r.label.toUpperCase().padEnd(w)}${String(r.value).padStart(8)} ${r.unit}${r.note ? `   ${r.note}` : ""}`).join("\n");
+          return el("li", { className: "card" }, head(4, "SCAN TOOL · LIVE DATA"), scr);
+        }
+        return el("li", { className: "card" }, head(5, `TEST · ${c.test.name.toUpperCase()}`), el("p", {}, c.test.result));
+      };
+
+      const save = () => {
+        const rec = getDay("diagnose", day);
+        const finished = st.solved || st.guesses.length >= CLUES;
+        putDay("diagnose", day, { ...rec, live: rec?.live ?? !archive, done: finished, solved: st.solved, result: finished ? (st.solved ? `${st.guesses.length}/${CLUES}` : `x/${CLUES}`) : undefined, state: st });
+      };
+
+      function render() {
+        const finished = done || st.solved || st.guesses.length >= CLUES;
+        const shown = finished ? CLUES : Math.min(CLUES, st.guesses.length + 1);
+        $("[data-clues]").replaceChildren(...Array.from({ length: shown }, (_, i) => clue(i)));
+        $("[data-guessbox]").hidden = finished;
+        $("[data-choices]").replaceChildren(
+          ...c.choices.map((k) => {
+            const wrong = st.guesses.includes(k.id);
+            const b = el("button", { type: "button", className: "choice", disabled: wrong || finished }, k.label);
+            b.setAttribute("role", "radio");
+            b.setAttribute("aria-checked", String(pick === k.id));
+            if (wrong) b.classList.add("wrong");
+            b.addEventListener("click", () => ((pick = k.id), render()));
+            return b;
+          }),
+        );
+        $<HTMLButtonElement>("[data-go]").disabled = !pick;
+        $("[data-hint]").textContent = st.guesses.length ? `not it. clue ${shown} unlocked.` : "guess now, or get more clues by guessing wrong.";
+      }
+
+      $("[data-go]").addEventListener("click", () => {
+        if (!pick || done) return;
+        st.guesses.push(pick);
+        if (st.guesses.length === 1) (save(), report("diagnose", day, "play"));
+        if (pick === c.answer) st.solved = true;
+        pick = "";
+        save();
+        render();
+        if (st.solved || st.guesses.length >= CLUES) finish();
+      });
+
+      function finish() {
+        done = true;
+        save();
+        if (st.solved) report("diagnose", day, "solve");
+        render();
+        const n = st.guesses.length;
+        const right = c.choices.find((k) => k.id === c.answer)?.label ?? c.answer;
+        showDone(root!, {
+          game: "diagnose",
+          day,
+          archive,
+          solved: st.solved,
+          reveal: [
+            el("p", { className: "big" }, right),
+            para(c.explanation),
+            el("ol", { className: "why" }, ...c.clues.map((x, i) => el("li", {}, el("b", {}, `clue ${i + 1}: `), x))),
+          ],
+          score: st.solved ? `diagnosed with ${n} ${n === 1 ? "clue" : "clues"}` : "stumped",
+          headline: st.solved ? `${n}/${CLUES}` : `x/${CLUES}`,
+          line: st.solved ? "■".repeat(n) + "□".repeat(CLUES - n) : "×".repeat(CLUES),
+        });
+      }
+
+      render();
+      if (done) finish();
+    }
+  }
+</script>
+
+<style>
+  .dg {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr); /* never wider than the screen */
+    gap: 1rem;
+  }
+  .loading {
+    color: var(--dim-1);
+  }
+  .clues {
+    display: grid;
+    gap: 0.75rem;
+  }
+  .clues :global(.card) {
+    display: grid;
+    gap: 0.5rem;
+    padding: 1rem;
+    border: 1px solid var(--seam);
+    background: var(--surface);
+  }
+  .clues :global(.card:nth-child(even)) {
+    margin-left: min(var(--shift), 1rem);
+  }
+  .clues :global(.car) {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.5rem;
+    color: var(--bone);
+    letter-spacing: var(--track-tight);
+  }
+  .clues :global(.dim) {
+    color: var(--dim-1);
+    font-size: var(--fs-small);
+  }
+  .clues :global(.complaint) {
+    color: var(--text);
+  }
+  .clues :global(.bul) {
+    display: grid;
+    gap: 0.3rem;
+    padding-left: 1.2em;
+    list-style: square;
+  }
+  .clues :global(.bul ::marker) {
+    color: var(--dim-3);
+  }
+  .clues :global(.scan) {
+    font-family: var(--font-mono);
+    font-size: var(--fs-small);
+    line-height: 1.7;
+    color: var(--bone);
+    background: var(--bg);
+    border: 1px solid var(--seam-soft);
+    padding: 0.75rem;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .guess {
+    display: grid;
+    gap: 0.6rem;
+  }
+  .choices {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    gap: 0.4rem;
+  }
+  .choices :global(.choice) {
+    text-align: left;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid var(--seam);
+    color: var(--text);
+    min-height: 2.75rem;
+  }
+  .choices :global(.choice[aria-checked="true"]) {
+    border-color: var(--bone);
+    color: var(--bone);
+  }
+  .choices :global(.choice.wrong) {
+    color: var(--dim-3);
+    text-decoration: line-through;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .hint {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .dg :global(.why) {
+    display: grid;
+    gap: 0.5rem;
+    color: var(--dim-1);
+    max-width: 62ch;
+  }
+  .dg :global(.why b) {
+    color: var(--bone);
+    font-weight: 400;
+  }
+</style>

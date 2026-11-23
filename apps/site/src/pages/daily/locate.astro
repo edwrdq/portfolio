@@ -1,0 +1,445 @@
+---
+// daily locate: find a hidden robot from noisy range readings — monte carlo localization as a
+// game. map, start and sensor noise come from the day's seed (packages/daily/locate), so the page
+// is static and the server never knows where the robot is.
+import DailyShell from "../../components/DailyShell.astro";
+import DailyDone from "../../components/DailyDone.astro";
+
+const title = "daily locate — a monte carlo localization (particle filter) puzzle";
+const description =
+  "a hidden robot, a 12×12 field, and noisy distance sensors. move it, read the sensors, and guess where it is in 5 tries. then watch a real particle filter find it. a free daily puzzle about how robots localize.";
+const faq = [
+  {
+    q: "what is monte carlo localization?",
+    a: "it's how a robot works out where it is on a known map. it scatters thousands of guesses (particles) over the map, moves them all the way the robot moved, then keeps the ones whose expected sensor readings match what the robot actually saw. after a few rounds the survivors pile up on the real position.",
+  },
+  {
+    q: "what do the sensor numbers mean?",
+    a: "each is the distance, in cells, from the robot to the nearest wall in that direction (north, east, south, west), counting the map edge as a wall. they're noisy: each reading can be off by about half a cell.",
+  },
+  {
+    q: "does the robot know which way it's facing?",
+    a: "yes. like a robot with a compass or imu, it knows its heading, just not its position. that's why the readings are labelled north/east/south/west.",
+  },
+  {
+    q: "what counts as a correct guess?",
+    a: "the robot's cell or any of the 8 cells around it. a miss tells you if you were close (within 3 cells), warm (within 6) or cold.",
+  },
+];
+---
+
+<DailyShell game="locate" n="D02" seoTitle={title} {description} {faq} intro="a robot is hidden on the map. it can feel the walls, but not see. find it in 5 guesses.">
+  <div class="lc" data-locate>
+    <div class="hud">
+      <p class="facing">facing <b data-facing>—</b></p>
+      <p class="left"><span data-left>5</span> guesses left</p>
+    </div>
+
+    <div class="field-wrap">
+      <div class="field" data-field role="grid" aria-label="the map. tap a cell to place your guess.">
+        <noscript><p class="nojs">the map is drawn by javascript. turn it on to play.</p></noscript>
+      </div>
+      <canvas class="particles" data-pcanvas hidden aria-hidden="true"></canvas>
+    </div>
+
+    <pre class="term" data-term aria-live="polite">reading sensors…</pre>
+
+    <div class="act" data-act-guess>
+      <button type="button" class="btn btn-primary" data-guess disabled>GUESS</button>
+      <span class="hint" data-ghint>tap the cell where you think the robot is.</span>
+    </div>
+    <div class="act" data-act-move hidden>
+      <button type="button" class="btn sm" data-move="left">⟲ TURN LEFT</button>
+      <button type="button" class="btn sm" data-move="fwd">↑ FORWARD</button>
+      <button type="button" class="btn sm" data-move="right">⟳ TURN RIGHT</button>
+    </div>
+
+    <div class="pf" data-pf hidden>
+      <button type="button" class="btn sm" data-particles aria-pressed="false">SHOW PARTICLES</button>
+      <span class="hint" data-pf-step></span>
+    </div>
+    <DailyDone />
+  </div>
+
+  <Fragment slot="how">
+    <h2 class="h">how to play</h2>
+    <ol class="steps">
+      <li>the robot is somewhere on the map, facing the direction shown. its four numbers are distances to the nearest wall north, east, south and west.</li>
+      <li>tap the cell you think it's in and hit <b>guess</b>. the robot's cell or any cell touching it counts.</li>
+      <li>missed? pick a move: turn, or drive forward one cell (it won't drive through walls). it reads its sensors again.</li>
+      <li>five guesses. compare the readings to the map, rule places out, and close in.</li>
+    </ol>
+
+    <h2 class="h" id="mcl">how monte carlo localization works</h2>
+    <div class="prose-ish">
+      <p>this game is a tiny version of a real robotics problem, and it's based on the localization work i've done in robotics: a robot has a map but doesn't know where it is on it.</p>
+      <p><b>1. scatter.</b> start with a few hundred particles spread evenly over every open spot. each one is a guess: "maybe the robot is here."</p>
+      <p><b>2. predict.</b> when the robot moves, move every particle the same way. particles that would drive into a wall stay put, just like the robot.</p>
+      <p><b>3. weigh.</b> for each particle, work out what the sensors <i>would</i> read from there, and compare it to what the robot actually read. close match → heavy particle. bad match → nearly weightless.</p>
+      <p><b>4. resample.</b> draw a new set of particles, picking heavy ones more often. bad guesses die out, good ones multiply. add a little random jitter so they don't all collapse onto one point.</p>
+      <p>repeat predict → weigh → resample every step. after a few rounds the particles bunch up where the robot really is. solve today's puzzle and hit <b>show particles</b> to watch it happen with your own moves.</p>
+    </div>
+  </Fragment>
+</DailyShell>
+
+<script>
+  import { dailyLocate, replay, warmth, trueDist, wall, DIR_NAME, GUESSES, W, H, DX, DY, type Move, type Dir } from "@edwrdq/daily/locate";
+  import { dayFromUrl, getDay, putDay, report } from "@edwrdq/daily/client";
+  import { showDone } from "../../lib/daily-done";
+
+  type State = { moves: Move[]; guesses: { x: number; y: number }[]; solved: boolean };
+
+  const root = document.querySelector<HTMLElement>("[data-locate]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const { day, archive } = dayFromUrl();
+    const l = dailyLocate(day);
+    const saved = getDay<State>("locate", day);
+    const st: State = saved?.state ?? { moves: [], guesses: [], solved: false };
+    let done = !!saved?.done;
+    let sel: { x: number; y: number } | null = null;
+    const ARROW = ["↑", "→", "↓", "←"];
+
+    // ---------------- field
+    const field = $("[data-field]");
+    const cells: HTMLButtonElement[] = [];
+    field.replaceChildren(
+      ...Array.from({ length: W * H }, (_, i) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "cell";
+        const x = i % W, y = Math.floor(i / W);
+        if (wall(l.walls, x, y)) (b.classList.add("wall"), (b.disabled = true), b.setAttribute("aria-label", "wall"));
+        else b.setAttribute("aria-label", `column ${x + 1}, row ${y + 1}`);
+        b.dataset.x = String(x);
+        b.dataset.y = String(y);
+        cells.push(b);
+        return b;
+      }),
+    );
+
+    const save = () => {
+      const rec = getDay("locate", day);
+      const finished = st.solved || st.guesses.length >= GUESSES;
+      putDay("locate", day, {
+        ...rec,
+        live: rec?.live ?? !archive,
+        done: finished,
+        solved: st.solved,
+        result: finished ? (st.solved ? `${st.guesses.length}/${GUESSES}` : `x/${GUESSES}`) : undefined,
+        state: st,
+      });
+    };
+
+    function render() {
+      const { poses, readings } = replay(l, day, st.moves);
+      const pose = poses[poses.length - 1];
+      const finished = st.solved || st.guesses.length >= GUESSES;
+      $("[data-facing]").textContent = `${ARROW[pose.h]} ${DIR_NAME[pose.h]}`;
+      $("[data-left]").textContent = String(GUESSES - st.guesses.length);
+      for (const c of cells) {
+        c.classList.remove("sel", "g", "path", "robot");
+        c.textContent = "";
+        c.removeAttribute("data-w");
+      }
+      st.guesses.forEach((g, i) => {
+        const c = cells[g.y * W + g.x];
+        c.classList.add("g");
+        c.textContent = String(i + 1);
+        c.dataset.w = warmth(g, poses[i]);
+      });
+      if (sel && !finished) cells[sel.y * W + sel.x].classList.add("sel");
+      if (finished) {
+        poses.forEach((p) => cells[p.y * W + p.x].classList.add("path"));
+        const end = cells[pose.y * W + pose.x];
+        end.classList.add("robot");
+        end.textContent = ARROW[pose.h];
+      }
+      // the terminal: newest reading on top, older steps underneath
+      const lines: string[] = [];
+      for (let k = readings.length - 1; k >= 0; k--) {
+        const r = readings[k];
+        const fmt = (n: number) => n.toFixed(1).padStart(5);
+        const moved = k > 0 ? st.moves[k - 1] : null;
+        const bumped = moved === "fwd" && poses[k].x === poses[k - 1].x && poses[k].y === poses[k - 1].y;
+        const how = moved ? `${moved === "fwd" ? "forward" : `turn ${moved}`}${bumped ? " (bumped a wall)" : ""}` : "start";
+        const g = st.guesses[k];
+        const verdict = g ? `  guess ${k + 1}: ${warmth(g, poses[k])}` : "";
+        lines.push(`step ${k} · ${how} · facing ${DIR_NAME[poses[k].h]}${verdict}`, `  N${fmt(r[0])}   E${fmt(r[1])}   S${fmt(r[2])}   W${fmt(r[3])}`);
+        if (k === readings.length - 1 && readings.length > 1) lines.push("  ─────────────────────────────");
+      }
+      $("[data-term]").textContent = lines.join("\n");
+      const needMove = !finished && st.guesses.length > st.moves.length;
+      $("[data-act-guess]").hidden = finished || needMove;
+      $("[data-act-move]").hidden = !needMove;
+      $<HTMLButtonElement>("[data-guess]").disabled = !sel;
+      $("[data-ghint]").textContent = sel ? `guess ${st.guesses.length + 1}: column ${sel.x + 1}, row ${sel.y + 1}` : "tap the cell where you think the robot is.";
+      $("[data-pf]").hidden = !finished;
+    }
+
+    field.addEventListener("click", (e) => {
+      const c = (e.target as HTMLElement).closest<HTMLButtonElement>(".cell");
+      if (!c || c.disabled || done || st.guesses.length > st.moves.length) return;
+      sel = { x: Number(c.dataset.x), y: Number(c.dataset.y) };
+      render();
+    });
+
+    $("[data-guess]").addEventListener("click", () => {
+      if (!sel || done) return;
+      const { poses } = replay(l, day, st.moves);
+      st.guesses.push(sel);
+      sel = null;
+      if (st.guesses.length === 1) {
+        save();
+        report("locate", day, "play");
+      }
+      if (warmth(st.guesses[st.guesses.length - 1], poses[poses.length - 1]) === "hit") st.solved = true;
+      save();
+      render();
+      if (st.solved || st.guesses.length >= GUESSES) finish();
+    });
+
+    for (const b of root.querySelectorAll<HTMLButtonElement>("[data-move]"))
+      b.addEventListener("click", () => {
+        if (done || st.guesses.length <= st.moves.length) return;
+        st.moves.push(b.dataset.move as Move);
+        save();
+        render();
+      });
+
+    function finish() {
+      done = true;
+      save();
+      if (st.solved) report("locate", day, "solve");
+      showResult();
+    }
+
+    function showResult() {
+      const n = st.guesses.length;
+      const { poses } = replay(l, day, st.moves);
+      const end = poses[poses.length - 1];
+      root!.classList.add("is-done");
+      const big = Object.assign(document.createElement("p"), { className: "big", textContent: st.solved ? `found it on guess ${n}.` : "it got away." });
+      const where = Object.assign(document.createElement("p"), {
+        className: "dim",
+        textContent: `the robot started at column ${l.start.x + 1}, row ${l.start.y + 1} facing ${DIR_NAME[l.start.h]} and ended at column ${end.x + 1}, row ${end.y + 1}. its path is lit on the map.`,
+      });
+      const mcl = Object.assign(document.createElement("p"), { className: "dim" });
+      mcl.append("hit show particles to watch a real particle filter work it out from the same readings. ", Object.assign(document.createElement("a"), { href: "#mcl", textContent: "how that works →" }));
+      showDone(root!, {
+        game: "locate",
+        day,
+        archive,
+        solved: st.solved,
+        reveal: [big, where, mcl],
+        score: st.solved ? `${n}/${GUESSES} guesses` : `missed all ${GUESSES}`,
+        headline: st.solved ? `${n}/${GUESSES}` : `x/${GUESSES}`,
+        line: st.solved ? "■".repeat(n) + "□".repeat(GUESSES - n) : "×".repeat(GUESSES),
+      });
+    }
+
+    // ---------------- particle filter replay (the educational bit)
+    const canvas = $<HTMLCanvasElement>("[data-pcanvas]");
+    let anim = 0;
+    function particles(on: boolean) {
+      cancelAnimationFrame(anim);
+      clearTimeout(anim);
+      canvas.hidden = !on;
+      $("[data-particles]").setAttribute("aria-pressed", String(on));
+      $("[data-particles]").textContent = on ? "HIDE PARTICLES" : "SHOW PARTICLES";
+      if (!on) return void ($("[data-pf-step]").textContent = "");
+      const rect = field.getBoundingClientRect();
+      const dpr = devicePixelRatio || 1;
+      canvas.width = Math.round(rect.width * dpr);
+      canvas.height = Math.round(rect.height * dpr);
+      const ctx = canvas.getContext("2d")!;
+      const cw = canvas.width / W, chh = canvas.height / H;
+      const css = getComputedStyle(document.documentElement);
+      const acid = css.getPropertyValue("--acid").trim();
+      const bone = css.getPropertyValue("--bone").trim();
+      const { poses, readings } = replay(l, day, st.moves);
+      const N = 600, SIG = 0.6;
+      const free: number[] = [];
+      for (let i = 0; i < W * H; i++) if (!l.walls[i]) free.push(i);
+      let px = new Float32Array(N), py = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const c = free[Math.floor(Math.random() * free.length)];
+        px[i] = (c % W) + Math.random();
+        py[i] = Math.floor(c / W) + Math.random();
+      }
+      const draw = (label: string) => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = bone;
+        for (let i = 0; i < N; i++) ctx.fillRect(Math.floor(px[i] * cw) - dpr, Math.floor(py[i] * chh) - dpr, 2 * dpr, 2 * dpr);
+        const p = poses[k];
+        ctx.strokeStyle = acid;
+        ctx.lineWidth = 2 * dpr;
+        ctx.strokeRect(p.x * cw + dpr, p.y * chh + dpr, cw - 2 * dpr, chh - 2 * dpr);
+        $("[data-pf-step]").textContent = label;
+      };
+      let k = 0;
+      let phase = 0; // 0 scatter/predict, 1 weigh+resample
+      const steps = readings.length;
+      const tick = () => {
+        if (phase === 0) {
+          if (k > 0) {
+            const m = st.moves[k - 1];
+            if (m === "fwd") {
+              const h = poses[k - 1].h as Dir;
+              for (let i = 0; i < N; i++) {
+                const nx = px[i] + DX[h], ny = py[i] + DY[h];
+                if (!wall(l.walls, Math.floor(nx), Math.floor(ny))) (px[i] = nx), (py[i] = ny);
+              }
+            }
+          }
+          draw(k === 0 ? "step 0: particles scattered everywhere" : `step ${k}: predict (moved ${st.moves[k - 1] === "fwd" ? "forward" : "turned"})`);
+          phase = 1;
+        } else {
+          const r = readings[k];
+          const w = new Float64Array(N);
+          let sum = 0;
+          for (let i = 0; i < N; i++) {
+            const cx = Math.floor(px[i]), cy = Math.floor(py[i]);
+            let lw = 1;
+            for (let d = 0; d < 4; d++) {
+              const e = r[d] - trueDist(l.walls, cx, cy, d as Dir);
+              lw *= Math.exp((-e * e) / (2 * SIG * SIG));
+            }
+            w[i] = lw + 1e-12;
+            sum += w[i];
+          }
+          // low-variance resampling + a little jitter
+          const nx = new Float32Array(N), ny = new Float32Array(N);
+          const stepW = sum / N;
+          let u = Math.random() * stepW, c = w[0], j = 0;
+          for (let i = 0; i < N; i++) {
+            while (u > c && j < N - 1) c += w[++j];
+            let jx = px[j] + (Math.random() - 0.5) * 0.3, jy = py[j] + (Math.random() - 0.5) * 0.3;
+            if (wall(l.walls, Math.floor(jx), Math.floor(jy))) (jx = px[j]), (jy = py[j]);
+            nx[i] = jx;
+            ny[i] = jy;
+            u += stepW;
+          }
+          px = nx;
+          py = ny;
+          draw(`step ${k}: weigh by the readings, resample`);
+          phase = 0;
+          k++;
+          if (k >= steps) return;
+        }
+        anim = window.setTimeout(tick, 900);
+      };
+      tick();
+    }
+    $("[data-particles]").addEventListener("click", () => particles(canvas.hidden));
+
+    render();
+    if (done) showResult();
+  }
+</script>
+
+<style>
+  .lc {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr); /* never wider than the screen */
+    gap: 1rem;
+  }
+  .hud {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+  .hud b {
+    font-weight: 400;
+    color: var(--bone);
+  }
+  /* explicit size: 12 cells + the 1px frame, never wider than the screen */
+  .field-wrap {
+    --c: min(2.5rem, calc((100vw - 2 * var(--gutter) - 2px) / 12));
+    position: relative;
+    width: calc(12 * var(--c) + 2px);
+  }
+  .field {
+    display: grid;
+    grid-template-columns: repeat(12, var(--c));
+    grid-template-rows: repeat(12, var(--c));
+    border: 1px solid var(--seam);
+  }
+  .field :global(.cell) {
+    border-right: 1px solid var(--seam-soft);
+    border-bottom: 1px solid var(--seam-soft);
+    background: var(--surface);
+    font-size: var(--fs-small);
+    color: var(--bg);
+    display: grid;
+    place-items: center;
+  }
+  .field :global(.cell.wall) {
+    background: var(--dim-3);
+    cursor: default;
+  }
+  .field :global(.cell:not(.wall):hover) {
+    background: var(--seam);
+  }
+  .field :global(.cell.sel) {
+    outline: 2px solid var(--bone);
+    outline-offset: -2px;
+  }
+  .field :global(.cell.g) {
+    background: var(--dim-2);
+  }
+  .field :global(.cell.g[data-w="close"]) {
+    background: var(--dim-1);
+  }
+  .field :global(.cell.path) {
+    box-shadow: inset 0 0 0 1px var(--acid);
+  }
+  .field :global(.cell.robot) {
+    background: var(--acid);
+    color: var(--on-acid);
+    font-size: 1rem;
+  }
+  .particles {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  .nojs {
+    grid-column: 1 / -1;
+    grid-row: 6;
+    padding: 0 1rem;
+    color: var(--dim-2);
+    font-size: var(--fs-small);
+  }
+  .term {
+    font-family: var(--font-mono);
+    font-size: var(--fs-small);
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--seam);
+    padding: 0.75rem 0.9rem;
+    max-height: 14rem;
+    overflow: auto;
+    white-space: pre;
+    min-height: 4.5rem;
+  }
+  .act,
+  .pf {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+  }
+  .btn.sm {
+    height: 2.75rem;
+    padding-inline: 0.85rem;
+  }
+  .hint {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+</style>

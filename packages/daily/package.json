@@ -6,7 +6,11 @@
   "exports": {
     ".": "./src/core.ts",
     "./picross": "./src/picross.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./locate": "./src/locate.ts",
+    "./asm": "./src/asm.ts",
+    "./logic": "./src/logic.ts",
+    "./curated": "./src/curated.ts"
   },
   "dependencies": {
     "@edwrdq/ui": "workspace:*"

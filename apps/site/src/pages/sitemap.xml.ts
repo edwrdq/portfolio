@@ -1,8 +1,9 @@
 // sitemap, built at deploy time. add new public pages to TOOLS.
 import type { APIRoute } from "astro";
 import { getIndex, getPosts } from "../lib/content";
+import { GAMES } from "@edwrdq/daily";
 
-const TOOLS = ["/dither", "/daily", "/daily/picross", "/daily/archive"];
+const TOOLS = ["/dither", "/daily", "/daily/archive", ...GAMES.map((g) => g.href)];
 const HIDDEN = new Set(["/styleguide"]);
 
 export const GET: APIRoute = async ({ site }) => {

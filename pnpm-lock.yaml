@@ -199,6 +199,9 @@ importers:
       '@astrojs/cloudflare':
         specifier: ^14.4.9
         version: 14.4.9(@types/node@18.19.130)(astro@7.4.13(@types/node@18.19.130)(esbuild@0.28.2)(yaml@2.9.1))(esbuild@0.28.2)(workerd@1.20261119.1)(wrangler@4.166.0(@types/node@18.19.130))(yaml@2.9.1)
+      '@edwrdq/daily':
+        specifier: workspace:*
+        version: link:../../packages/daily
       '@edwrdq/dither':
         specifier: workspace:*
         version: link:../../packages/dither

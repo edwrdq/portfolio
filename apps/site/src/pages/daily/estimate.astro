@@ -1,0 +1,175 @@
+---
+// daily estimate: one fermi question, one number. scored on a log scale (within 2× = great,
+// within 10× = ok). questions come from the bank in admin, each with a source you can check.
+import DailyShell from "../../components/DailyShell.astro";
+import DailyDone from "../../components/DailyDone.astro";
+
+const title = "daily estimate — a fermi question every day";
+const description =
+  "a free daily fermi estimation puzzle. one question, one number. get within 2× for great, 10× for ok. see the real answer, the reasoning, and the source.";
+const faq = [
+  {
+    q: "what's a fermi question?",
+    a: "a question you can't look up in your head but can estimate by breaking it into pieces you do know. how many people, how often, how much each. named after enrico fermi, who was famously good at them.",
+  },
+  {
+    q: "how is it scored?",
+    a: "by how many times off you are, not by how many units. guessing 50 when the answer is 100 is 2× off, the same as guessing 200. within 2× is great, within 10× is ok.",
+  },
+  {
+    q: "can i type 3k or 2.5m?",
+    a: "yes. k, m and b work (thousand, million, billion), and commas are fine.",
+  },
+  {
+    q: "where do the answers come from?",
+    a: "every question links to its source, and each one is checked by hand before it goes live.",
+  },
+];
+---
+
+<DailyShell game="estimate" n="D06" seoTitle={title} {description} {faq} intro="one question. one number. how close can you get?">
+  <div class="es" data-est>
+    <p class="loading" data-status>loading today's question…</p>
+    <p class="question" data-question hidden></p>
+    <form class="ans" data-form hidden>
+      <label class="sr-only" for="est-in">your estimate</label>
+      <input id="est-in" class="field" data-in inputmode="decimal" autocomplete="off" placeholder="your estimate" />
+      <span class="unit" data-unit></span>
+      <button type="submit" class="btn btn-primary">LOCK IT IN</button>
+    </form>
+    <p class="hint" data-hint></p>
+    <DailyDone />
+  </div>
+
+  <Fragment slot="how">
+    <h2 class="h">how to play</h2>
+    <ol class="steps">
+      <li>read the question. break it into things you can guess: how many people, how often, how much each.</li>
+      <li>multiply it out and type one number. k, m and b work.</li>
+      <li>one shot. within 2× of the real answer is <b>great</b>, within 10× is <b>ok</b>.</li>
+      <li>then see the real number, the reasoning, and the source.</li>
+    </ol>
+  </Fragment>
+</DailyShell>
+
+<script>
+  import { dayFromUrl, getDay, putDay, report } from "@edwrdq/daily/client";
+  import { showDone, para } from "../../lib/daily-done";
+  import type { EstimateQuestion } from "@edwrdq/daily/curated";
+
+  type Q = Omit<EstimateQuestion, "flags"> & { id: number };
+  type State = { guess: number | null; qid: number };
+
+  const root = document.querySelector<HTMLElement>("[data-est]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const { day, archive } = dayFromUrl();
+
+    const parseNum = (s: string): number | null => {
+      const m = s.trim().toLowerCase().replace(/,/g, "").match(/^(\d*\.?\d+)\s*([kmb])?$/);
+      if (!m) return null;
+      const v = parseFloat(m[1]) * (m[2] === "k" ? 1e3 : m[2] === "m" ? 1e6 : m[2] === "b" ? 1e9 : 1);
+      return v > 0 && Number.isFinite(v) ? v : null;
+    };
+    const fmt = (n: number) => (n >= 100 ? Math.round(n).toLocaleString("en-US") : n.toLocaleString("en-US", { maximumSignificantDigits: 3 }));
+
+    fetch(`/api/daily/puzzle?game=estimate&date=${day}`)
+      .then((r) => r.json() as Promise<{ puzzle?: { kind: string; data: Q } | null }>)
+      .then((j) => (j.puzzle?.kind === "estimate" ? start(j.puzzle.data) : ($("[data-status]").textContent = "no puzzle today. eddy slacked.")))
+      .catch(() => ($("[data-status]").textContent = "couldn't load today's question. try again in a bit."));
+
+    function start(q: Q) {
+      $("[data-status]").hidden = true;
+      $("[data-question]").hidden = false;
+      $("[data-question]").textContent = q.question;
+      $("[data-unit]").textContent = q.unit;
+      const saved = getDay<State>("estimate", day);
+      const st: State = saved?.state && saved.state.qid === q.id ? saved.state : { guess: null, qid: q.id };
+
+      const finish = () => {
+        const g = st.guess!;
+        const ratio = Math.max(g / q.answer, q.answer / g);
+        const tier = ratio <= 2 ? "great" : ratio <= 10 ? "ok" : "miss";
+        const solved = tier !== "miss";
+        const rec = getDay("estimate", day);
+        putDay("estimate", day, { ...rec, live: rec?.live ?? !archive, done: true, solved, result: `${tier} · ${ratio.toFixed(1)}×`, state: st });
+        report("estimate", day, "play");
+        if (solved) report("estimate", day, "solve");
+        $("[data-form]").hidden = true;
+        const src = Object.assign(document.createElement("a"), { href: q.source_url, target: "_blank", rel: "noopener nofollow", textContent: "source ↗" });
+        const srcP = document.createElement("p");
+        srcP.append(src);
+        showDone(root!, {
+          game: "estimate",
+          day,
+          archive,
+          solved,
+          reveal: [
+            Object.assign(document.createElement("p"), { className: "big", textContent: `${fmt(q.answer)}${q.unit ? ` ${q.unit}` : ""}` }),
+            para(`you said ${fmt(g)}. that's ${ratio < 1.05 ? "basically spot on" : `${ratio.toFixed(1)}× ${g > q.answer ? "high" : "low"}`}.`, "dim"),
+            para(q.reasoning),
+            srcP,
+          ],
+          score: tier === "great" ? "great (within 2×)" : tier === "ok" ? "ok (within 10×)" : "a miss (more than 10× off)",
+          headline: `${tier} · ${ratio.toFixed(1)}× off`,
+          line: tier === "great" ? "■■■" : tier === "ok" ? "■■□" : "■□□",
+        });
+      };
+
+      if (st.guess !== null) return finish();
+      $("[data-form]").hidden = false;
+      $("[data-form]").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = parseNum($<HTMLInputElement>("[data-in]").value);
+        if (v === null) return void ($("[data-hint]").textContent = "a positive number please. 3500, 3.5k and 3,500 all work.");
+        st.guess = v;
+        $("[data-hint]").textContent = "";
+        finish();
+      });
+    }
+  }
+</script>
+
+<style>
+  .es {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr); /* never wider than the screen */
+    gap: 1rem;
+  }
+  .loading {
+    color: var(--dim-1);
+  }
+  .question {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.5rem, 5vw, 2.25rem);
+    line-height: 1.1;
+    letter-spacing: var(--track-tight);
+    color: var(--bone);
+  }
+  .ans {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .ans[hidden] {
+    display: none;
+  }
+  .unit {
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+  .hint {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  @media (max-width: 520px) {
+    .ans {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .ans .btn {
+      grid-column: 1 / -1;
+    }
+  }
+</style>

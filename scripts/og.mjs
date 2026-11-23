@@ -150,9 +150,15 @@ async function iconArt(name, px = 40) {
   return { src: `data:image/png;base64,${png.toString("base64")}`, w: size, h: size };
 }
 const carArt = await iconArt("car");
+const dailyCard = async (n, id, sub, icon) => ({ path: `daily/${id}`, kicker: `${n} — DAILY / ${id.toUpperCase()}`, title: id, sub, foot: `EDWRDQ.COM/DAILY/${id.toUpperCase()}`, art: await iconArt(icon) });
 TOOLS.push(
   { path: "daily", kicker: "D00 — DAILY / PUZZLES", title: "daily", sub: "a new puzzle every day. the same for everyone.", foot: "EDWRDQ.COM/DAILY", art: carArt },
   { path: "daily/picross", kicker: "D01 — DAILY / PICROSS", title: "picross", sub: "an 8×8 nonogram, new every day.", foot: "EDWRDQ.COM/DAILY/PICROSS", art: carArt },
+  await dailyCard("D02", "locate", "find a hidden robot from noisy sensors.", "signal"),
+  await dailyCard("D03", "asm", "read some x86-64. what's in rax?", "chip"),
+  await dailyCard("D04", "diagnose", "what's wrong with the car? fewest clues wins.", "car"),
+  await dailyCard("D05", "logic", "knights, knaves, and proofs.", "pen"),
+  await dailyCard("D06", "estimate", "one fermi question. get within 2×.", "chart"),
 );
 for (const t of TOOLS) jobs.push([t.path, card(t)]);
 

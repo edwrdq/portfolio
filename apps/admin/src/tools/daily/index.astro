@@ -1,0 +1,479 @@
+---
+// admin → daily: what's going out, what's running low, what needs approving.
+---
+
+<div class="dly" data-dly>
+  <div class="warns" data-warns></div>
+
+  <section class="block">
+    <p class="label">TODAY · <span data-today></span></p>
+    <div class="tbl-wrap"><table class="ov" data-ov></table></div>
+  </section>
+
+  <section class="block">
+    <p class="label">PREVIEW ANY DAY</p>
+    <div class="row">
+      <select class="field sel" data-pgame aria-label="game"></select>
+      <input class="field sel" type="date" data-pdate aria-label="date" />
+      <button type="button" class="btn sm" data-preview>PREVIEW</button>
+    </div>
+    <pre class="pre" data-pout>pick a game and a date.</pre>
+  </section>
+
+  <section class="block">
+    <p class="label">NEXT 3 WEEKS</p>
+    <div class="tbl-wrap"><table class="cal" data-cal></table></div>
+  </section>
+
+  <section class="block">
+    <p class="label">ENTRIES</p>
+    <div class="chips" role="tablist">
+      <button type="button" class="chip" data-tab="diagnose" aria-pressed="true">diagnose</button>
+      <button type="button" class="chip" data-tab="estimate" aria-pressed="false">estimate</button>
+      <button type="button" class="chip" data-tab="override" aria-pressed="false">overrides (asm, logic)</button>
+      <label class="only"><input type="checkbox" data-onlyunv /> unverified only</label>
+    </div>
+    <div class="row">
+      <button type="button" class="btn sm" data-new>NEW</button>
+      <button type="button" class="btn sm" data-autofill>AUTO-SCHEDULE NEXT 30 DAYS</button>
+    </div>
+    <ul class="entries" data-entries></ul>
+  </section>
+
+  <section class="block" data-editor hidden>
+    <p class="label" data-ed-title>EDIT</p>
+    <div class="row" data-ov-kind hidden>
+      <button type="button" class="chip" data-tpl="asm">asm snippet</button>
+      <button type="button" class="chip" data-tpl="order">logic: order the proof</button>
+      <button type="button" class="chip" data-tpl="badstep">logic: spot the bad step</button>
+    </div>
+    <textarea class="field json" data-json spellcheck="false" rows="18"></textarea>
+    <div class="row">
+      <button type="button" class="btn btn-primary" data-save>SAVE</button>
+      <button type="button" class="btn sm" data-cancel>CANCEL</button>
+    </div>
+  </section>
+  <p class="status" data-status aria-live="polite"></p>
+</div>
+
+<style>
+  .dly {
+    max-width: 64rem;
+    display: grid;
+    gap: 1.5rem;
+  }
+  .block {
+    display: grid;
+    gap: 0.6rem;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .btn.sm {
+    height: 2.75rem;
+    padding-inline: 0.85rem;
+  }
+  .sel {
+    width: auto;
+    min-width: 10rem;
+  }
+  .only {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+    margin-left: 0.5rem;
+  }
+  .only input {
+    appearance: auto;
+    accent-color: var(--acid);
+  }
+  .warns:empty {
+    display: none;
+  }
+  .warns :global(p) {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--acid);
+    color: var(--bone);
+  }
+  .warns :global(p + p) {
+    margin-top: 0.4rem;
+  }
+  .tbl-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--seam-soft);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: var(--fs-small);
+    font-variant-numeric: tabular-nums;
+  }
+  table :global(th),
+  table :global(td) {
+    text-align: left;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--seam-soft);
+    white-space: nowrap;
+  }
+  table :global(th) {
+    color: var(--dim-2);
+    font-weight: 400;
+  }
+  .cal :global(.missing) {
+    color: var(--acid);
+  }
+  .cal :global(.gen) {
+    color: var(--dim-3);
+  }
+  .cal :global(.unv) {
+    color: var(--dim-1);
+    text-decoration: underline dotted;
+  }
+  .pre {
+    font-family: var(--font-mono);
+    font-size: var(--fs-small);
+    line-height: 1.6;
+    padding: 0.75rem;
+    border: 1px solid var(--seam);
+    background: var(--surface);
+    white-space: pre-wrap;
+    max-height: 32rem;
+    overflow: auto;
+  }
+  .entries {
+    display: grid;
+    gap: 0.4rem;
+  }
+  .entries :global(li) {
+    display: grid;
+    gap: 0.4rem;
+    padding: 0.7rem;
+    border: 1px solid var(--seam-soft);
+  }
+  .entries :global(.top) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.8rem;
+    align-items: center;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .entries :global(.badge) {
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+    padding: 0.15rem 0.4rem;
+    border: 1px solid var(--seam);
+  }
+  .entries :global(.badge.unverified) {
+    border-color: var(--acid);
+    color: var(--acid);
+  }
+  .entries :global(.badge.approved) {
+    color: var(--bone);
+  }
+  .entries :global(.title) {
+    color: var(--bone);
+  }
+  .entries :global(.flags) {
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+  .entries :global(.acts) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+  }
+  .entries :global(.acts button) {
+    height: 2.4rem;
+    padding-inline: 0.65rem;
+    border: 1px solid var(--seam);
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-1);
+  }
+  .entries :global(.acts input) {
+    height: 2.4rem;
+    width: auto;
+  }
+  .json {
+    font-family: var(--font-mono);
+    font-size: var(--fs-small);
+    min-height: 22rem;
+  }
+  .status {
+    font-size: var(--fs-small);
+    color: var(--text);
+    min-height: 1.2em;
+  }
+</style>
+
+<script>
+  import { GAMES, dayKey, padNum, puzzleNumber } from "@edwrdq/daily";
+  import { dailyPicross, N } from "@edwrdq/daily/picross";
+  import { dailyLocate, sense, W, H, DIR_NAME } from "@edwrdq/daily/locate";
+  import { dailyAsm, answer, difficultyFor, hex, s64, targetLabel } from "@edwrdq/daily/asm";
+  import { dailyKK, say } from "@edwrdq/daily/logic";
+
+  type Type = "diagnose" | "estimate" | "override";
+  const root = document.querySelector<HTMLElement>("[data-dly]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (string | Node)[]) => {
+      const e = Object.assign(document.createElement(tag), props);
+      e.append(...kids);
+      return e;
+    };
+    const status = (m: string) => ($("[data-status]").textContent = m);
+    async function api(path: string, payload?: unknown) {
+      const res = await fetch(`/api/daily/${path}`, payload ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) } : undefined);
+      const out = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !out.ok) throw new Error(out.error ?? `failed (${res.status})`);
+      return out;
+    }
+    const today = dayKey();
+    $("[data-today]").textContent = `${padNum(puzzleNumber(today))} · ${today}`;
+
+    // ---------------- overview + warnings
+    async function overview() {
+      const { games } = await api("overview");
+      const head = el("tr", {}, ...["game", "type", "today", "7 days", "solve rate", "queued days", "unverified"].map((h) => el("th", {}, h)));
+      const pct = (s: number, p: number) => (p ? `${Math.round((s / p) * 100)}%` : "—");
+      $("[data-ov]").replaceChildren(
+        head,
+        ...games.map((g: any) =>
+          el(
+            "tr",
+            {},
+            el("td", {}, g.id),
+            el("td", {}, g.kind),
+            el("td", {}, `${g.today.solves}/${g.today.plays}`),
+            el("td", {}, `${g.week.solves}/${g.week.plays}`),
+            el("td", {}, pct(g.week.solves, g.week.plays)),
+            el("td", {}, g.days !== undefined ? `${g.days}${g.queued ? ` (+${g.queued} unscheduled)` : ""}` : g.upcoming ? `${g.upcoming} overrides` : "∞ generated"),
+            el("td", {}, String(g.unverified ?? 0)),
+          ),
+        ),
+      );
+      $("[data-warns]").replaceChildren(
+        ...games
+          .filter((g: any) => g.warn)
+          .map((g: any) => el("p", {}, g.days === 0 ? `${g.id} has nothing for today. the page says “no puzzle today. eddy slacked.”` : `${g.id} only has ${g.days} day${g.days === 1 ? "" : "s"} queued (under 14). approve + schedule more.`)),
+      );
+    }
+
+    // ---------------- calendar
+    async function calendar() {
+      const { calendar } = await api(`calendar?from=${today}&days=21`);
+      $("[data-cal]").replaceChildren(
+        el("tr", {}, el("th", {}, "date"), ...GAMES.map((g) => el("th", {}, g.id))),
+        ...calendar.map((d: any) =>
+          el(
+            "tr",
+            {},
+            el("td", {}, `${padNum(puzzleNumber(d.date))} ${d.date.slice(5)}`),
+            ...GAMES.map((g) => {
+              const c = d.games[g.id];
+              const td = el("td", {}, c.src === "generated" ? "gen" : c.src === "missing" ? "MISSING" : `${c.src.replace("override:", "")} #${c.id}${c.status === "unverified" ? " (unverified)" : ""}`);
+              td.className = c.src === "missing" ? "missing" : c.src === "generated" ? "gen" : c.status === "unverified" ? "unv" : "";
+              return td;
+            }),
+          ),
+        ),
+      );
+    }
+
+    // ---------------- preview
+    const pg = $<HTMLSelectElement>("[data-pgame]");
+    pg.append(...GAMES.map((g) => el("option", { value: g.id }, g.id)));
+    $<HTMLInputElement>("[data-pdate]").value = today;
+    $("[data-preview]").addEventListener("click", async () => {
+      const game = pg.value as (typeof GAMES)[number]["id"];
+      const date = $<HTMLInputElement>("[data-pdate]").value;
+      const out = $("[data-pout]");
+      let text = `${game} ${padNum(puzzleNumber(date))} · ${date}\n\n`;
+      try {
+        const sch = await api(`scheduled?game=${game}&date=${date}`);
+        if (sch.entry) {
+          const e = sch.entry;
+          text += `SCHEDULED ${sch.type}${e.kind ? `:${e.kind}` : ""} #${e.id} · ${e.status}${e.status !== "approved" ? "  ← won't go live until approved" : ""}\n\n`;
+          const { id, status, author, scheduled_for, ...rest } = e;
+          text += JSON.stringify(rest, null, 2) + "\n\n";
+          if (sch.type === "override" && e.kind === "asm") {
+            const a = answer({ ...e.data, difficulty: 0, source: "curated" });
+            text += `answer: ${s64(a)} (${hex(a)})\n`;
+          }
+          return void (out.textContent = text);
+        }
+      } catch (err) {
+        text += `(couldn't check overrides: ${(err as Error).message})\n\n`;
+      }
+      if (game === "picross") {
+        const p = dailyPicross(date);
+        text += `${p.name ? `site icon: ${p.name}` : "generated icon"} · ${p.filled} filled\n\n`;
+        for (let y = 0; y < N; y++) text += p.grid.slice(y * N, y * N + N).map((v) => (v ? "██" : "··")).join("") + `   ${p.rows[y].join(" ")}\n`;
+        text += `\ncolumns: ${p.cols.map((c) => c.join(".")).join("  ")}`;
+      } else if (game === "locate") {
+        const l = dailyLocate(date);
+        for (let y = 0; y < H; y++) text += Array.from({ length: W }, (_, x) => (l.walls[y * W + x] ? "██" : x === l.start.x && y === l.start.y ? "R " : "· ")).join("") + "\n";
+        text += `\nstart: column ${l.start.x + 1}, row ${l.start.y + 1}, facing ${DIR_NAME[l.start.h]}\nfirst reading (n e s w): ${sense(l.walls, l.start, date, 0).join("  ")}`;
+      } else if (game === "asm") {
+        const p = dailyAsm(date);
+        const a = answer(p);
+        text += `generated · difficulty ${difficultyFor(date)}/7\n\n${p.src}\n\nq: what's in ${targetLabel(p.target)}?\nanswer: ${s64(a)} (${hex(a)})`;
+      } else if (game === "logic") {
+        const k = dailyKK(date);
+        text += `generated knights & knaves (no curated entry)\n\n${k.says.map((s, i) => `${k.names[i]}: “${say(s, i, k.names)}”`).join("\n")}\n\nanswer: ${k.names.map((n, i) => `${n}=${k.solution[i] ? "knight" : "knave"}`).join("  ")}`;
+      } else text += "nothing scheduled → the page shows “no puzzle today. eddy slacked.”";
+      out.textContent = text;
+    });
+
+    // ---------------- entries
+    let tab: Type = "diagnose";
+    let editing: { type: Type; id: number | null } | null = null;
+    const summary = (t: Type, e: any) =>
+      t === "diagnose" ? `${e.vehicle.year} ${e.vehicle.make} ${e.vehicle.model} — “${e.complaint}” → ${e.choices.find((c: any) => c.id === e.answer)?.label ?? e.answer}` : t === "estimate" ? `${e.question} → ${e.answer.toLocaleString("en-US")} ${e.unit}` : `${e.game}/${e.kind}${e.title ? ` — ${e.title}` : ""}`;
+
+    async function entries() {
+      const { entries } = await api(`entries?type=${tab}`);
+      const only = $<HTMLInputElement>("[data-onlyunv]").checked;
+      const list = (entries as any[]).filter((e) => !only || e.status === "unverified");
+      $("[data-entries]").replaceChildren(
+        ...(list.length
+          ? list.map((e) => {
+              const date = el("input", { type: "date", className: "field", value: e.scheduled_for ?? "" });
+              const btn = (label: string, fn: () => Promise<unknown>) => {
+                const b = el("button", { type: "button" }, label);
+                b.addEventListener("click", async () => {
+                  try {
+                    await fn();
+                    await refresh();
+                  } catch (err) {
+                    status((err as Error).message);
+                  }
+                });
+                return b;
+              };
+              const src = tab === "estimate" ? el("a", { href: e.source_url, target: "_blank", rel: "noopener", className: "flags" }, `source: ${e.source_url}`) : "";
+              return el(
+                "li",
+                {},
+                el("div", { className: "top" }, el("span", {}, `#${e.id}`), el("span", { className: `badge ${e.status}` }, e.status), el("span", {}, `by ${e.author}`), el("span", {}, e.scheduled_for ? `scheduled ${e.scheduled_for}` : "not scheduled")),
+                el("p", { className: "title" }, summary(tab, e)),
+                ...(e.flags?.length ? [el("p", { className: "flags" }, `check: ${e.flags.join(" · ")}`)] : []),
+                src,
+                el(
+                  "div",
+                  { className: "acts" },
+                  e.status === "unverified" ? btn("APPROVE", () => api("status", { type: tab, id: e.id, status: "approved" })) : btn("UNAPPROVE", () => api("status", { type: tab, id: e.id, status: "unverified" })),
+                  date,
+                  btn("SET DATE", () => api("schedule", { type: tab, id: e.id, date: date.value || null })),
+                  btn("UNSCHEDULE", () => api("schedule", { type: tab, id: e.id, date: null })),
+                  btn("EDIT", async () => openEditor(tab, e)),
+                  btn("DELETE", async () => {
+                    if (confirm(`delete #${e.id}?`)) await api("delete", { type: tab, id: e.id });
+                  }),
+                ),
+              );
+            })
+          : [el("li", { className: "flags" }, only ? "nothing unverified." : "nothing here yet.")]),
+      );
+    }
+
+    // ---------------- editor (plain json, validated on the server)
+    const TEMPLATES: Record<string, unknown> = {
+      diagnose: {
+        vehicle: { year: 2012, make: "honda", model: "civic", engine: "1.8l i4", miles: 120000 },
+        complaint: "check engine light, idles rough",
+        symptoms: ["…"],
+        codes: [{ code: "P0171", desc: "system too lean bank 1", status: "stored" }],
+        live: [{ label: "stft b1", value: "+4", unit: "%" }],
+        test: { name: "smoke test", result: "…" },
+        answer: "vacuum-leak",
+        choices: [
+          { id: "vacuum-leak", label: "vacuum leak" },
+          { id: "maf", label: "dirty maf sensor" },
+          { id: "fuel-pump", label: "weak fuel pump" },
+          { id: "o2", label: "bad upstream o2 sensor" },
+        ],
+        explanation: "…",
+        clues: ["clue 1 → …", "clue 2 → …", "clue 3 → …", "clue 4 → …", "clue 5 → …"],
+        flags: [],
+      },
+      estimate: { question: "how many …?", answer: 1000, unit: "", reasoning: "…", source_url: "https://…", flags: [] },
+      asm: { game: "asm", kind: "asm", title: "", data: { src: "  mov rax, 1\n  shl rax, 4\n  add rax, 2", target: { k: "reg", reg: "rax" } } },
+      order: { game: "logic", kind: "order", title: "", data: { claim: "…", steps: ["first", "second", "third"], explain: "" } },
+      badstep: { game: "logic", kind: "badstep", title: "", data: { claim: "…", steps: ["…", "…", "…"], bad: 1, explain: "…" } },
+    };
+    function openEditor(type: Type, e: any | null) {
+      editing = { type, id: e?.id ?? null };
+      $("[data-editor]").hidden = false;
+      $("[data-ov-kind]").hidden = type !== "override";
+      $("[data-ed-title]").textContent = e ? `EDIT ${type.toUpperCase()} #${e.id}` : `NEW ${type.toUpperCase()}`;
+      let data: unknown;
+      if (e) {
+        const { id, status, author, scheduled_for, ...rest } = e;
+        data = rest;
+      } else data = TEMPLATES[type === "override" ? "asm" : type];
+      $<HTMLTextAreaElement>("[data-json]").value = JSON.stringify(data, null, 2);
+      $("[data-editor]").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    root.querySelectorAll<HTMLButtonElement>("[data-tpl]").forEach((b) => b.addEventListener("click", () => ($<HTMLTextAreaElement>("[data-json]").value = JSON.stringify(TEMPLATES[b.dataset.tpl!], null, 2))));
+    $("[data-new]").addEventListener("click", () => openEditor(tab, null));
+    $("[data-cancel]").addEventListener("click", () => (($("[data-editor]").hidden = true), (editing = null)));
+    $("[data-save]").addEventListener("click", async () => {
+      if (!editing) return;
+      let data: unknown;
+      try {
+        data = JSON.parse($<HTMLTextAreaElement>("[data-json]").value);
+      } catch (err) {
+        return status(`that's not valid json: ${(err as Error).message}`);
+      }
+      try {
+        const { id } = await api("save", { type: editing.type, id: editing.id, data });
+        status(`saved #${id}.`);
+        $("[data-editor]").hidden = true;
+        editing = null;
+        await refresh();
+      } catch (err) {
+        status((err as Error).message);
+      }
+    });
+
+    root.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((b) =>
+      b.addEventListener("click", () => {
+        tab = b.dataset.tab as Type;
+        root.querySelectorAll("[data-tab]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+        $("[data-autofill]").hidden = tab === "override";
+        entries();
+      }),
+    );
+    $("[data-onlyunv]").addEventListener("change", entries);
+    $("[data-autofill]").addEventListener("click", async () => {
+      try {
+        const { scheduled } = await api("autofill", { type: tab, days: 30 });
+        status(scheduled ? `scheduled ${scheduled} entries.` : "nothing to schedule: approve some unscheduled entries first.");
+        await refresh();
+      } catch (err) {
+        status((err as Error).message);
+      }
+    });
+
+    async function refresh() {
+      await Promise.all([overview(), calendar(), entries()]).catch((err) => status((err as Error).message));
+    }
+    refresh();
+  }
+</script>

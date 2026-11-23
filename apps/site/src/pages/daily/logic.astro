@@ -1,0 +1,378 @@
+---
+// daily logic: proof-style puzzles. knights & knaves are generated (a solver guarantees exactly
+// one answer); "order the proof" and "spot the bad step" are curated in admin and win when
+// scheduled for the day.
+import DailyShell from "../../components/DailyShell.astro";
+import DailyDone from "../../components/DailyDone.astro";
+
+const title = "daily logic — knights and knaves puzzles and proofs";
+const description =
+  "a free daily logic puzzle: knights always tell the truth, knaves always lie. work out who's who from what they say. some days it's a proof to put in order, or a fake proof with one bad step to find.";
+const faq = [
+  {
+    q: "how do you solve knights and knaves puzzles?",
+    a: "pick one person and assume they're a knight. then everything they say is true, so follow it to its consequences. if you hit a contradiction, they must be a knave (and everything they say is false). people who talk about themselves are often the easiest place to start.",
+  },
+  {
+    q: "is there always exactly one answer?",
+    a: "for the generated knights & knaves days, yes. a solver checks every possible knight/knave combination and the puzzle is only used if exactly one fits.",
+  },
+  {
+    q: "what's 'order the proof'?",
+    a: "the steps of a real proof, shuffled. put them back in an order where each step follows from the ones before it.",
+  },
+  {
+    q: "what's 'spot the bad step'?",
+    a: "a short proof of something false (or a true thing proved badly). exactly one step doesn't follow. find it.",
+  },
+];
+---
+
+<DailyShell game="logic" n="D05" seoTitle={title} {description} {faq} intro="knights always tell the truth. knaves always lie. some days, a proof instead.">
+  <div class="lg" data-logic>
+    <p class="fmt label" data-fmt>LOADING</p>
+    <p class="claim" data-claim></p>
+    <div data-board></div>
+    <div class="row">
+      <button type="button" class="btn btn-primary" data-check disabled>CHECK</button>
+      <span class="hint" data-hint></span>
+    </div>
+    <ol class="tries" data-tries></ol>
+    <DailyDone />
+  </div>
+
+  <Fragment slot="how">
+    <h2 class="h">how to play</h2>
+    <ol class="steps">
+      <li><b>knights & knaves:</b> tap each person to mark them knight or knave, then check. 3 tries. a miss tells you how many you got right.</li>
+      <li><b>order the proof:</b> drag the steps (or use the arrows) into an order where each one follows from what's above it. 3 tries.</li>
+      <li><b>spot the bad step:</b> tap the one step that doesn't follow. 2 tries.</li>
+    </ol>
+  </Fragment>
+</DailyShell>
+
+<script>
+  import { dailyKK, evaluate, say, type KK, type CuratedLogic } from "@edwrdq/daily/logic";
+  import { dailyRng } from "@edwrdq/daily";
+  import { dayFromUrl, getDay, putDay, report } from "@edwrdq/daily/client";
+  import { showDone, para } from "../../lib/daily-done";
+
+  type Puzzle = { kind: "kk"; kk: KK } | { kind: "order" | "badstep"; c: CuratedLogic };
+  type State = { tries: number[][]; solved: boolean }; // a try = the player's answer as numbers
+
+  const root = document.querySelector<HTMLElement>("[data-logic]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const { day, archive } = dayFromUrl();
+    const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (string | Node)[]) => {
+      const e = Object.assign(document.createElement(tag), props);
+      e.append(...kids);
+      return e;
+    };
+
+    const load = async (): Promise<Puzzle> => {
+      try {
+        const r = await fetch(`/api/daily/puzzle?game=logic&date=${day}`);
+        const j = (await r.json()) as { puzzle?: { kind: "order" | "badstep"; data: CuratedLogic } | null };
+        if (j.puzzle && (j.puzzle.kind === "order" || j.puzzle.kind === "badstep")) return { kind: j.puzzle.kind, c: { ...j.puzzle.data, kind: j.puzzle.kind } as CuratedLogic };
+      } catch {
+        /* fall back to generated */
+      }
+      return { kind: "kk", kk: dailyKK(day) };
+    };
+
+    load().then((pz) => {
+      const max = pz.kind === "badstep" ? 2 : 3;
+      const saved = getDay<State>("logic", day);
+      const st: State = saved?.state ?? { tries: [], solved: false };
+      let done = !!saved?.done;
+      const last = st.tries.length ? [...st.tries[st.tries.length - 1]] : null; // restore the last attempt
+      const check = $<HTMLButtonElement>("[data-check]");
+      const board = $("[data-board]");
+
+      // the current answer being built, and how to judge it
+      let cur: number[] = [];
+      let judge: (a: number[]) => { ok: boolean; note: string };
+      let reveal: () => (string | Node)[];
+
+      if (pz.kind === "kk") {
+        const { names, says, solution } = pz.kk;
+        $("[data-fmt]").textContent = `KNIGHTS & KNAVES · ${names.length} PEOPLE`;
+        $("[data-claim]").textContent = "who's a knight and who's a knave?";
+        cur = last ?? names.map(() => -1); // -1 unset, 1 knight, 0 knave
+        const list = el("ul", { className: "people" });
+        const draw = () => {
+          list.replaceChildren(
+            ...names.map((n, i) => {
+              const b = el("button", { type: "button", className: "who" }, cur[i] === 1 ? "knight" : cur[i] === 0 ? "knave" : "?");
+              b.dataset.v = String(cur[i]);
+              b.setAttribute("aria-label", `${n}: ${cur[i] === 1 ? "knight" : cur[i] === 0 ? "knave" : "not set"}. tap to change`);
+              b.addEventListener("click", () => {
+                if (done) return;
+                cur[i] = cur[i] === -1 ? 1 : cur[i] === 1 ? 0 : 1;
+                draw();
+              });
+              return el("li", {}, el("p", { className: "name" }, n), el("p", { className: "says" }, `“${say(says[i], i, names)}”`), b);
+            }),
+          );
+          check.disabled = done || cur.includes(-1);
+        };
+        board.append(list);
+        draw();
+        judge = (a) => {
+          const right = a.filter((v, i) => (v === 1) === solution[i]).length;
+          return { ok: right === names.length, note: `${right} of ${names.length} right` };
+        };
+        reveal = () => [
+          el("p", { className: "big" }, names.map((n, i) => `${n}: ${solution[i] ? "knight" : "knave"}`).join(" · ")),
+          el(
+            "ul",
+            { className: "why" },
+            ...names.map((n, i) => {
+              const t = evaluate(says[i], solution);
+              return el("li", {}, `${n} is a ${solution[i] ? "knight" : "knave"}, so “${say(says[i], i, names)}” is ${t ? "true" : "false"}. ✓`);
+            }),
+          ),
+          para("that's the only assignment where every knight tells the truth and every knave lies.", "dim"),
+        ];
+      } else if (pz.kind === "order") {
+        const c = pz.c;
+        $("[data-fmt]").textContent = "ORDER THE PROOF";
+        $("[data-claim]").textContent = `claim: ${c.claim}`;
+        // shuffled with the day's seed so everyone starts from the same mess (never already solved)
+        const r = dailyRng("logic-order", day);
+        cur = c.steps.map((_, i) => i);
+        do r.shuffle(cur);
+        while (cur.every((v, i) => v === i));
+        if (last) cur = last;
+        const list = el("ol", { className: "proof" });
+        let dragFrom = -1;
+        const draw = () => {
+          list.replaceChildren(
+            ...cur.map((stepIdx, pos) => {
+              const up = el("button", { type: "button", className: "mv", ariaLabel: "move up", disabled: pos === 0 || done }, "↑");
+              const dn = el("button", { type: "button", className: "mv", ariaLabel: "move down", disabled: pos === cur.length - 1 || done }, "↓");
+              const swap = (a: number, b: number) => (([cur[a], cur[b]] = [cur[b], cur[a]]), draw());
+              up.addEventListener("click", () => swap(pos, pos - 1));
+              dn.addEventListener("click", () => swap(pos, pos + 1));
+              const li = el("li", { draggable: !done }, el("span", { className: "txt" }, c.steps[stepIdx]), el("span", { className: "mvs" }, up, dn));
+              li.addEventListener("dragstart", () => (dragFrom = pos));
+              li.addEventListener("dragover", (e) => e.preventDefault());
+              li.addEventListener("drop", (e) => {
+                e.preventDefault();
+                if (dragFrom < 0 || dragFrom === pos) return;
+                const [m] = cur.splice(dragFrom, 1);
+                cur.splice(pos, 0, m);
+                dragFrom = -1;
+                draw();
+              });
+              return li;
+            }),
+          );
+          check.disabled = done;
+        };
+        board.append(list);
+        draw();
+        judge = (a) => {
+          const right = a.filter((v, i) => v === i).length;
+          return { ok: right === a.length, note: `${right} of ${a.length} in the right place` };
+        };
+        reveal = () => [el("p", { className: "big" }, "the proof, in order:"), el("ol", { className: "proof done-proof" }, ...c.steps.map((s) => el("li", {}, s))), ...(c.explain ? [para(c.explain, "dim")] : [])];
+      } else {
+        const c = pz.c as Extract<CuratedLogic, { kind: "badstep" }>;
+        $("[data-fmt]").textContent = "SPOT THE BAD STEP";
+        $("[data-claim]").textContent = `“proof” that ${c.claim}`;
+        cur = last ?? [-1];
+        const list = el("ol", { className: "proof pick" });
+        const draw = () => {
+          list.replaceChildren(
+            ...c.steps.map((s, i) => {
+              const b = el("button", { type: "button", disabled: done }, s);
+              b.setAttribute("aria-pressed", String(cur[0] === i));
+              b.addEventListener("click", () => ((cur = [i]), draw()));
+              return el("li", {}, b);
+            }),
+          );
+          check.disabled = done || cur[0] < 0;
+        };
+        board.append(list);
+        draw();
+        judge = (a) => ({ ok: a[0] === c.bad, note: `step ${a[0] + 1} is fine` });
+        reveal = () => [el("p", { className: "big" }, `the bad step: ${c.bad + 1}. “${c.steps[c.bad]}”`), para(c.explain)];
+      }
+
+      const save = () => {
+        const rec = getDay("logic", day);
+        const finished = st.solved || st.tries.length >= max;
+        putDay("logic", day, { ...rec, live: rec?.live ?? !archive, done: finished, solved: st.solved, result: finished ? (st.solved ? `${st.tries.length}/${max}` : `x/${max}`) : undefined, state: st });
+      };
+      const renderTries = () => {
+        $("[data-tries]").replaceChildren(...st.tries.map((t, i) => el("li", {}, `${i + 1}. ${judge(t).ok ? "correct" : judge(t).note}`)));
+        const left = max - st.tries.length;
+        $("[data-hint]").textContent = done ? "" : `${left} ${left === 1 ? "try" : "tries"} left`;
+      };
+
+      check.addEventListener("click", () => {
+        if (done) return;
+        st.tries.push([...cur]);
+        if (st.tries.length === 1) (save(), report("logic", day, "play"));
+        if (judge(cur).ok) st.solved = true;
+        save();
+        if (st.solved || st.tries.length >= max) finish();
+        renderTries();
+      });
+
+      function finish() {
+        done = true;
+        save();
+        if (st.solved) report("logic", day, "solve");
+        root!.querySelectorAll<HTMLButtonElement>("[data-board] button").forEach((b) => (b.disabled = true));
+        check.disabled = true;
+        showResult();
+      }
+      function showResult() {
+        const n = st.tries.length;
+        showDone(root!, {
+          game: "logic",
+          day,
+          archive,
+          solved: st.solved,
+          reveal: reveal(),
+          score: st.solved ? `solved in ${n}/${max}` : "out of tries",
+          headline: `${pz.kind === "kk" ? "knights & knaves" : pz.kind === "order" ? "order the proof" : "bad step"} · ${st.solved ? n : "x"}/${max}`,
+          line: st.solved ? "■".repeat(n) + "□".repeat(max - n) : "×".repeat(max),
+        });
+      }
+
+      renderTries();
+      if (done) finish();
+    });
+  }
+</script>
+
+<style>
+  .lg {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr); /* never wider than the screen */
+    gap: 1rem;
+  }
+  .claim {
+    color: var(--bone);
+    font-size: var(--fs-read);
+  }
+  .lg :global(.people) {
+    display: grid;
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .lg :global(.people li) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name btn" "says btn";
+    gap: 0.25rem 1rem;
+    align-items: center;
+    padding-block: 0.9rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .lg :global(.name) {
+    grid-area: name;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.4rem;
+    color: var(--bone);
+    letter-spacing: var(--track-tight);
+  }
+  .lg :global(.says) {
+    grid-area: says;
+    color: var(--text);
+  }
+  .lg :global(.who) {
+    grid-area: btn;
+    min-width: 6.5rem;
+    height: 2.75rem;
+    border: 1px solid var(--seam);
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+    color: var(--dim-2);
+  }
+  .lg :global(.who[data-v="1"]) {
+    border-color: var(--bone);
+    color: var(--bone);
+  }
+  .lg :global(.who[data-v="0"]) {
+    border-color: var(--dim-3);
+    color: var(--dim-1);
+    background: var(--surface);
+  }
+  .lg :global(.proof) {
+    display: grid;
+    gap: 0.4rem;
+    counter-reset: s;
+  }
+  .lg :global(.proof li) {
+    counter-increment: s;
+    display: grid;
+    grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.6rem 0.6rem 0.6rem 0;
+    border: 1px solid var(--seam-soft);
+    background: var(--surface);
+  }
+  .lg :global(.proof li)::before {
+    content: counter(s, decimal-leading-zero);
+    color: var(--dim-2);
+    font-size: var(--fs-small);
+    text-align: right;
+  }
+  .lg :global(.proof .mvs) {
+    display: flex;
+    gap: 0.25rem;
+  }
+  .lg :global(.proof .mv) {
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 1px solid var(--seam);
+    color: var(--dim-1);
+  }
+  .lg :global(.proof .mv:disabled) {
+    opacity: 0.3;
+  }
+  .lg :global(.proof.pick li) {
+    grid-template-columns: 2.25rem minmax(0, 1fr);
+    padding: 0;
+  }
+  .lg :global(.proof.pick button) {
+    text-align: left;
+    padding: 0.7rem 0.6rem 0.7rem 0;
+    color: var(--text);
+  }
+  .lg :global(.proof.pick button[aria-pressed="true"]) {
+    color: var(--bone);
+    text-decoration: underline;
+  }
+  .lg :global(.done-proof li) {
+    grid-template-columns: 2.25rem minmax(0, 1fr);
+  }
+  .lg :global(.why) {
+    display: grid;
+    gap: 0.3rem;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .hint {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .tries {
+    display: grid;
+    gap: 0.3rem;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+</style>
