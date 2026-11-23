@@ -6,6 +6,8 @@ import PageHead from "../components/PageHead.astro";
 import Entry from "../components/Entry.astro";
 import Timeline from "../components/Timeline.astro";
 import Label from "@edwrdq/ui/Label.astro";
+import Row from "@edwrdq/ui/Row.astro";
+import type { IconName } from "@edwrdq/ui/icons";
 import { getIndex, pad } from "../lib/content";
 
 export const getStaticPaths = (async () => {
@@ -33,7 +35,7 @@ interface Props {
 }
 
 const { section, n, entries } = Astro.props;
-const { title, desc, intro, groups } = section.data;
+const { title, desc, intro, outro, note, layout, groups } = section.data;
 const isTimeline = section.id === "work";
 
 // no groups → one unnamed block. groups → one block each, in yml order;
@@ -58,6 +60,32 @@ const blocks: Block[] = groups?.length
   <PageHead n={n} label={desc.toUpperCase()} title={title} intro={intro} />
 
   {
+    note && (
+      <aside class="note gutter" aria-label="note">
+        <div class="note-inner">
+          <p class="note-text">{note.text}</p>
+          <figure class="note-fig">
+            <img src={note.image} alt={note.alt} loading="lazy" decoding="async" />
+            {(note.caption || note.captionLink) && (
+              <figcaption>
+                {note.caption}
+                {note.captionLink && (
+                  <>
+                    {" "}
+                    <a href={note.captionLink.href} target="_blank" rel="noopener">
+                      {note.captionLink.label} <span aria-hidden="true">↗</span>
+                    </a>
+                  </>
+                )}
+              </figcaption>
+            )}
+          </figure>
+        </div>
+      </aside>
+    )
+  }
+
+  {
     blocks.map((b) => (
       <section class="list gutter" id={b.id} aria-label={b.title}>
         {b.title && (
@@ -68,7 +96,19 @@ const blocks: Block[] = groups?.length
           </header>
         )}
         {b.entries.length === 0 ? (
-          <p class="empty">nothing here yet<span class="cursor">_</span></p>
+          layout !== "rows" && <p class="empty">nothing here yet<span class="cursor">_</span></p>
+        ) : layout === "rows" ? (
+          <ol class="rows">
+            {b.entries.map((e, i) => (
+              <Row
+                n={i + 1}
+                title={e.data.title}
+                desc={e.data.summary}
+                icon={e.data.icon as IconName | undefined}
+                status={e.data.status}
+              />
+            ))}
+          </ol>
         ) : isTimeline ? (
           <Timeline entries={b.entries} />
         ) : (
@@ -81,6 +121,12 @@ const blocks: Block[] = groups?.length
       </section>
     ))
   }
+
+  {outro && (
+    <div class="gutter">
+      <p class="outro">{outro}</p>
+    </div>
+  )}
 
   <nav class="back gutter label" aria-label="back">
     <a href="/">← INDEX</a>
@@ -110,11 +156,70 @@ const blocks: Block[] = groups?.length
   .entries {
     border-bottom: 1px solid var(--seam-soft);
   }
+  .rows {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+
+  .note {
+    margin-bottom: 4rem;
+  }
+  .note-inner {
+    display: grid;
+    gap: 2rem;
+  }
+  .note-text {
+    font-size: var(--fs-body);
+    line-height: 1.7;
+    color: var(--dim-1);
+    max-width: 60ch;
+  }
+  .note-fig {
+    width: 100%;
+    max-width: 320px;
+  }
+  .note-fig img {
+    display: block;
+    width: 100%;
+    height: auto;
+    image-rendering: pixelated;
+    border-radius: 0;
+  }
+  .note-fig figcaption {
+    margin-top: 0.6rem;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dim-2);
+  }
+  .note-fig a {
+    border-bottom: 1px solid var(--dim-4);
+    transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+  }
+  .note-fig a:hover {
+    color: var(--bone);
+    border-color: var(--bone);
+  }
+  @media (min-width: 960px) {
+    .note-inner {
+      margin-left: var(--offset);
+      grid-template-columns: minmax(0, 1fr) 240px;
+      gap: 2.5rem;
+      align-items: start;
+    }
+    .note-fig {
+      max-width: 240px;
+    }
+  }
   .empty {
     margin-left: var(--offset);
     color: var(--dim-2);
     padding-block: 2rem;
     border-top: 1px solid var(--seam-soft);
+  }
+  .outro {
+    margin-top: 3rem;
+    margin-left: var(--offset);
+    max-width: 52ch;
+    color: var(--dim-1);
   }
   .back {
     margin-top: 4rem;

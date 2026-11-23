@@ -15,6 +15,20 @@ const index = defineCollection({
     title: z.string(),
     desc: z.string(),
     intro: z.string().optional(),
+    /** optional note block above the entries: dim text with a small image beside it */
+    note: z
+      .object({
+        text: z.string(),
+        image: z.string().startsWith("/img/"),
+        alt: z.string(),
+        caption: z.string().optional(),
+        captionLink: z.object({ label: z.string(), href: z.string().url() }).optional(),
+      })
+      .optional(),
+    /** "rows": entries render as numbered index rows (icon + one line) instead of full entries */
+    layout: z.enum(["rows"]).optional(),
+    /** optional closing line at the bottom of the section page */
+    outro: z.string().optional(),
     /** optional sub-sections on the section page; entries pick one with `group:` */
     groups: z.array(z.object({ id: z.string(), title: z.string(), intro: z.string().optional() })).optional(),
     icon: z.enum(iconNames as [string, ...string[]]),
@@ -46,15 +60,17 @@ const projects = defineCollection({
     end: roughDate.optional(),
     /** work timeline: where (shown under the role) */
     org: z.string().optional(),
-    /** replaces the shown date text, e.g. "????—now" or "always". date still sorts. */
+    /** replaces the shown date text, e.g. "????—now" or "always". "" hides it. date still sorts. */
     when: z.string().optional(),
     summary: z.string(),
     /** optional — leave it off for things that aren't projects (e.g. music taste) */
-    status: z.enum(["active", "shipped", "planned", "archived"]).optional(),
+    status: z.enum(["active", "shipped", "planned", "archived", "concept"]).optional(),
     links: z.array(z.object({ label: z.string(), href: z.string().url() })).optional(),
     /** dithered image in public/img, e.g. "/img/civic.png" */
     image: z.string().startsWith("/img/").optional(),
     imageAlt: z.string().optional(),
+    /** pixel icon, used when the section has layout: rows */
+    icon: z.enum(iconNames as [string, ...string[]]).optional(),
     /** name of a file in src/demos (without .astro) */
     demo: z.string().optional(),
   }),

@@ -30,7 +30,8 @@
 - id: clothing
   title: clothing
   desc: pieces / design
-  intro: "pieces i design."
+  intro: "pieces i design. very much a work in progress, considering my equipment. my style in one line: a more practical rick owens, with some number (n)ine mixed in."
+  outro: "i know these are both mid. i'm just starting, so it's okay. trust."
   icon: shirt
   href: /clothing
 
@@ -53,6 +54,15 @@
   title: misc
   desc: small builds
   intro: "small builds that don't need their own page."
+  layout: rows
+  note:
+    text: 'honest disclaimer: most of this site was written by ai. i handled the direction: design references (i fed the agent pics i liked), images, deciding what goes where, and saying "no, more rick" a lot. i will not touch .astro or .tsx myself without a 10-foot pole and someone ready to pull me out with a hook, like a high-voltage electrician.'
+    image: /img/hook.png
+    alt: dithered photo of an electrician being pulled back with an insulated rescue hook
+    caption: "fig. 1: the hook ·"
+    captionLink:
+      label: via reddit
+      href: https://www.reddit.com/r/toolgifs/comments/17ki6r0/rescue_hook_and_high_voltage_detector/
   icon: box
   href: /misc
 

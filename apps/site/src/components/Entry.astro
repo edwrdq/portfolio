@@ -23,7 +23,11 @@ const Demo = demoLoader ? (await demoLoader()).default : null;
   <div class="meta">
     <span class="n">{n}</span>
     {status && <span class="status">[{status}]</span>}
-    {when ? <span class="when">{when}</span> : <time datetime={date.toISOString().slice(0, 7)}>{stampMonth(date)}</time>}
+    {when !== undefined ? (
+      when && <span class="when">{when}</span>
+    ) : (
+      <time datetime={date.toISOString().slice(0, 7)}>{stampMonth(date)}</time>
+    )}
   </div>
 
   <div class="main">
