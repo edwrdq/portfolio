@@ -1,0 +1,57 @@
+---
+import Base from "../../layouts/Base.astro";
+import PageHead from "../../components/PageHead.astro";
+import Row from "@edwrdq/ui/Row.astro";
+import { getIndex, getPosts, pad, stamp } from "../../lib/content";
+
+const posts = await getPosts();
+const index = await getIndex();
+const n = pad(index.findIndex((e) => e.id === "blog") + 1);
+---
+
+<Base title="blog" description="notes." og="blog">
+  <PageHead n={n} label="NOTES" title="blog" intro="notes. mostly for me, maybe useful to you." />
+
+  <section class="gutter">
+    {
+      posts.length === 0 ? (
+        <p class="empty">nothing yet. soon<span class="cursor">_</span></p>
+      ) : (
+        <ol class="rows posts">
+          {posts.map((p, i) => (
+            <Row
+              n={pad(posts.length - i)}
+              title={p.data.title}
+              desc={`${stamp(p.data.date)} — ${p.data.summary}`}
+              href={`/blog/${p.id}`}
+              status={p.data.draft ? "draft" : undefined}
+            />
+          ))}
+        </ol>
+      )
+    }
+  </section>
+
+  <p class="rss gutter label"><a href="/rss.xml">RSS</a></p>
+</Base>
+
+<style>
+  .posts {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .empty {
+    margin-left: var(--offset);
+    color: var(--dim-2);
+    padding-block: 2rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .rss {
+    margin-top: 3rem;
+  }
+  .rss a {
+    color: var(--dim-1);
+  }
+  .rss a:hover {
+    color: var(--bone);
+  }
+</style>

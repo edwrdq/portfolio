@@ -1,0 +1,75 @@
+---
+// short links: edwrdq.com/x/<slug> → 302. missing, disabled, or expired → "this link's gone."
+import { env } from "cloudflare:workers";
+import Base from "../../layouts/Base.astro";
+import Label from "@edwrdq/ui/Label.astro";
+import { isBot } from "../../lib/bots";
+
+export const prerender = false;
+
+const slug = (Astro.params.slug ?? "").toLowerCase();
+const link = /^[a-z0-9_-]{1,40}$/.test(slug)
+  ? await env.DB.prepare(
+      "SELECT id, url FROM links WHERE slug = ? AND disabled = 0 AND (expires_at IS NULL OR expires_at > unixepoch())",
+    )
+      .bind(slug)
+      .first<{ id: number; url: string }>()
+      .catch(() => null)
+  : null;
+
+if (link) {
+  // count humans only, and never make the redirect wait on the write
+  if (Astro.request.method === "GET" && !isBot(Astro.request)) {
+    Astro.locals.cfContext?.waitUntil(
+      env.DB.prepare("UPDATE links SET clicks = clicks + 1 WHERE id = ?").bind(link.id).run().catch(() => {}),
+    );
+  }
+  return new Response(null, {
+    status: 302,
+    headers: { location: link.url, "cache-control": "no-store", "referrer-policy": "no-referrer-when-downgrade" },
+  });
+}
+
+Astro.response.status = 404;
+Astro.response.headers.set("cache-control", "no-store");
+---
+
+<Base title="gone" description="this link's gone." noindex>
+  <section class="gone gutter">
+    <Label>404 — LINK</Label>
+    <h1 class="display big">gone<span class="acid">.</span></h1>
+    <p class="msg">this link's gone. expired, turned off, or never existed<span class="cursor">_</span></p>
+    <p class="back label"><a href="/">← INDEX</a></p>
+  </section>
+</Base>
+
+<style>
+  .gone {
+    padding-top: clamp(3rem, 10vw, 7rem);
+  }
+  .big {
+    margin-top: 2rem;
+    font-size: clamp(6rem, 30vw, 20rem);
+    font-weight: 800;
+    letter-spacing: -0.065em;
+    line-height: 0.8;
+  }
+  .acid {
+    color: var(--acid);
+  }
+  .msg {
+    margin-top: clamp(2rem, 5vw, 3rem);
+    margin-left: var(--offset);
+    max-width: 36ch;
+    color: var(--dim-1);
+  }
+  .back {
+    margin-top: 4rem;
+  }
+  .back a {
+    color: var(--dim-1);
+  }
+  .back a:hover {
+    color: var(--bone);
+  }
+</style>

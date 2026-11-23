@@ -1,0 +1,23 @@
+{
+  "name": "@edwrdq/ui",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tokens.css": "./src/styles/tokens.css",
+    "./fonts.css": "./src/styles/fonts.css",
+    "./base.css": "./src/styles/base.css",
+    "./icons": "./src/icons.ts",
+    "./PixelIcon.astro": "./src/components/PixelIcon.astro",
+    "./Seam.astro": "./src/components/Seam.astro",
+    "./Label.astro": "./src/components/Label.astro",
+    "./Row.astro": "./src/components/Row.astro"
+  },
+  "peerDependencies": {
+    "astro": "^7.0.0"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter-tight": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0"
+  }
+}

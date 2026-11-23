@@ -1,0 +1,150 @@
+---
+import type { GetStaticPaths } from "astro";
+import { render, type CollectionEntry } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import Label from "@edwrdq/ui/Label.astro";
+import Seam from "@edwrdq/ui/Seam.astro";
+import Comments from "../../components/Comments.astro";
+import { getPosts, stamp } from "../../lib/content";
+
+export const getStaticPaths = (async () => {
+  const posts = await getPosts();
+  return posts.map((post, i) => ({
+    params: { slug: post.id },
+    props: { post, newer: posts[i - 1], older: posts[i + 1] },
+  }));
+}) satisfies GetStaticPaths;
+
+interface Props {
+  post: CollectionEntry<"blog">;
+  newer?: CollectionEntry<"blog">;
+  older?: CollectionEntry<"blog">;
+}
+
+const { post, newer, older } = Astro.props;
+const { title, date, summary, tags, draft } = post.data;
+const { Content } = await render(post);
+---
+
+<Base title={title} description={summary} og={`blog/${post.id}`} type="article">
+  <article class="post gutter">
+    <header class="head">
+      <Label>
+        <a href="/blog" class="crumb">BLOG</a>
+        <span class="sep" aria-hidden="true">—</span>
+        <time datetime={date.toISOString()}>{stamp(date)}</time>
+        {draft && <span class="sep">[DRAFT]</span>}
+      </Label>
+      <h1 class="display title">{title}</h1>
+      <p class="summary">{summary}</p>
+      {tags.length > 0 && <p class="tags">{tags.map((t) => <span>#{t}</span>)}</p>}
+    </header>
+
+    <div class="prose body">
+      <Content />
+    </div>
+
+    <div class="after">
+      <Comments slug={post.id} />
+    </div>
+  </article>
+
+  {
+    (older || newer) && (
+      <>
+        <Seam class="post-seam" />
+        <nav class="pager gutter" aria-label="more posts">
+          <span>{older && <a href={`/blog/${older.id}`}><span class="label">← OLDER</span><span class="t">{older.data.title}</span></a>}</span>
+          <span class="right">{newer && <a href={`/blog/${newer.id}`}><span class="label">NEWER →</span><span class="t">{newer.data.title}</span></a>}</span>
+        </nav>
+      </>
+    )
+  }
+</Base>
+
+<style>
+  .head {
+    padding-top: clamp(3rem, 10vw, 7rem);
+    max-width: 65ch;
+  }
+  .crumb {
+    color: var(--dim-1);
+  }
+  .crumb:hover {
+    color: var(--bone);
+  }
+  .sep {
+    margin-inline: 0.6em;
+    color: var(--dim-3);
+  }
+  .title {
+    margin-top: 1.75rem;
+    font-size: clamp(2.5rem, 9vw, 5.5rem);
+    font-weight: 700;
+    line-height: 0.9;
+    text-transform: lowercase;
+  }
+  .summary {
+    margin-top: 1.5rem;
+    color: var(--dim-1);
+    font-size: var(--fs-read);
+  }
+  .tags {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .body {
+    margin-top: clamp(2.5rem, 6vw, 4rem);
+    max-width: 65ch;
+  }
+  .after {
+    margin-top: var(--section);
+    max-width: 65ch;
+  }
+
+  :global(.post-seam) {
+    margin-top: var(--section);
+  }
+
+  .pager {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    padding-block: 2rem;
+  }
+  .pager a {
+    display: grid;
+    gap: 0.6rem;
+  }
+  .pager .t {
+    font-family: var(--font-display);
+    font-size: clamp(1.1rem, 3vw, 1.5rem);
+    font-weight: 600;
+    letter-spacing: var(--track-tight);
+    line-height: 1.05;
+    color: var(--bone);
+    text-transform: lowercase;
+  }
+  .pager a:hover .label {
+    color: var(--acid);
+  }
+  .right {
+    text-align: right;
+  }
+  .right a {
+    justify-items: end;
+  }
+
+  /* once 65ch fits to the right of the offset line, hang the post there */
+  @media (min-width: 1200px) {
+    .head,
+    .body,
+    .after {
+      margin-left: var(--offset);
+    }
+  }
+</style>

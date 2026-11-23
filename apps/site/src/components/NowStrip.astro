@@ -1,0 +1,217 @@
+---
+// "currently" strip. filled client-side from /api/now and refreshed every 30s.
+// all text goes in via textContent. album art is only ever drawn dithered.
+import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
+---
+
+<div class="now" data-now hidden>
+  <p class="l1">
+    <span class="dot" data-dot aria-hidden="true"></span>
+    <span class="txt" data-txt></span>
+    <span class="ago" data-ago></span>
+  </p>
+  <p class="l2" data-music hidden>
+    <canvas class="art" data-art width="24" height="24" hidden aria-hidden="true"></canvas>
+    <span class="note" aria-hidden="true"><PixelIcon name="note" size={12} /></span>
+    <a class="trk" data-trk target="_blank" rel="noopener"></a>
+  </p>
+</div>
+
+<style>
+  .now {
+    display: grid;
+    gap: 0.45rem;
+    font-size: var(--fs-small);
+    min-width: 0;
+  }
+  .l1,
+  .l2 {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+    white-space: nowrap;
+  }
+  .dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    background: var(--acid);
+  }
+  .now.is-live .dot {
+    animation: pulse 1.8s var(--ease) infinite;
+  }
+  @keyframes pulse {
+    50% {
+      opacity: 0.25;
+    }
+  }
+  .txt,
+  .trk {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .txt {
+    color: var(--text);
+  }
+  .now:not(.is-live) .txt {
+    color: var(--dim-2);
+  }
+  .ago {
+    flex: none;
+    color: var(--dim-3);
+  }
+  .ago:empty {
+    display: none;
+  }
+  .l2 {
+    color: var(--dim-2);
+  }
+  .note {
+    flex: none;
+    display: inline-flex;
+    color: var(--dim-2);
+  }
+  .art {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    image-rendering: pixelated;
+  }
+  .art:not([hidden]) + .note {
+    display: none;
+  }
+  .trk {
+    color: var(--dim-1);
+  }
+  a.trk[href]:hover {
+    color: var(--bone);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .now.is-live .dot {
+      animation: none;
+    }
+  }
+</style>
+
+<script>
+  type Now = {
+    status: { text: string; tag: string | null; source: string; live: boolean; since: string | null } | null;
+    music: { track: string; artist: string | null; url: string | null; art: string | null } | null;
+  };
+
+  const root = document.querySelector<HTMLElement>("[data-now]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const txt = $("[data-txt]");
+    const ago = $("[data-ago]");
+    const musicRow = $("[data-music]");
+    const trk = $<HTMLAnchorElement>("[data-trk]");
+    const canvas = $<HTMLCanvasElement>("[data-art]");
+    let lastArt: string | null = null;
+
+    const rel = (iso: string) => {
+      const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+      if (s < 60) return "just now";
+      if (s < 3600) return `${Math.round(s / 60)}m ago`;
+      if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+      return `${Math.round(s / 86400)}d ago`;
+    };
+
+    // atkinson dither into the 24×24 canvas, bone on black (colors from the tokens)
+    const dither = (src: string) =>
+      new Promise<void>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const w = canvas.width;
+          const h = canvas.height;
+          const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+          ctx.drawImage(img, 0, 0, w, h);
+          const d = ctx.getImageData(0, 0, w, h);
+          const g = new Float32Array(w * h);
+          for (let i = 0; i < w * h; i++) g[i] = 0.299 * d.data[i * 4] + 0.587 * d.data[i * 4 + 1] + 0.114 * d.data[i * 4 + 2];
+          // stretch contrast so tiny art still has range
+          let lo = 255, hi = 0;
+          for (const v of g) (lo = Math.min(lo, v)), (hi = Math.max(hi, v));
+          const span = Math.max(1, hi - lo);
+          for (let i = 0; i < g.length; i++) g[i] = ((g[i] - lo) / span) * 255;
+          const css = getComputedStyle(document.documentElement);
+          const hex = (n: string) => {
+            const v = parseInt(css.getPropertyValue(n).trim().slice(1), 16);
+            return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+          };
+          const on = hex("--bone");
+          const off = hex("--bg");
+          const push = (x: number, y: number, e: number) => {
+            if (x >= 0 && x < w && y < h) g[y * w + x] += e;
+          };
+          for (let y = 0; y < h; y++)
+            for (let x = 0; x < w; x++) {
+              const i = y * w + x;
+              const lit = g[i] >= 128;
+              const e = (g[i] - (lit ? 255 : 0)) / 8;
+              push(x + 1, y, e), push(x + 2, y, e), push(x - 1, y + 1, e), push(x, y + 1, e), push(x + 1, y + 1, e), push(x, y + 2, e);
+              d.data.set([...(lit ? on : off), 255], i * 4);
+            }
+          ctx.putImageData(d, 0, 0);
+          resolve();
+        };
+        img.onerror = () => reject(new Error("art"));
+        img.src = src; // same-origin (/api/now/art), so the canvas stays readable
+      });
+
+    const render = (n: Now) => {
+      const s = n.status;
+      if (!s && !n.music) {
+        root.hidden = true;
+        return;
+      }
+      root.hidden = false;
+      root.classList.toggle("is-live", !!s?.live || !!n.music);
+
+      if (s) {
+        const tagged = s.tag && s.source === "manual" && !s.text.toLowerCase().startsWith(s.tag) ? `${s.tag} — ${s.text}` : s.text;
+        txt.textContent = tagged;
+        ago.textContent = !s.live && s.since ? rel(s.since) : "";
+      } else {
+        txt.textContent = "listening";
+        ago.textContent = "";
+      }
+
+      const m = n.music;
+      musicRow.hidden = !m;
+      if (m) {
+        trk.textContent = m.artist ? `${m.track} — ${m.artist}` : m.track;
+        if (m.url && /^https?:\/\//.test(m.url)) trk.href = m.url;
+        else trk.removeAttribute("href");
+        if (m.art && m.art !== lastArt) {
+          lastArt = m.art;
+          dither(m.art).then(() => (canvas.hidden = false)).catch(() => (canvas.hidden = true));
+        } else if (!m.art) {
+          lastArt = null;
+          canvas.hidden = true;
+        }
+      }
+    };
+
+    const load = async () => {
+      try {
+        const res = await fetch("/api/now", { headers: { accept: "application/json" } });
+        if (res.ok) render(await res.json());
+      } catch {
+        /* keep whatever is showing */
+      }
+    };
+
+    load();
+    let timer = setInterval(load, 30_000);
+    document.addEventListener("visibilitychange", () => {
+      clearInterval(timer);
+      if (!document.hidden) {
+        load();
+        timer = setInterval(load, 30_000);
+      }
+    });
+  }
+</script>

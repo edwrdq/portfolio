@@ -1,0 +1,57 @@
+---
+import { getIndex } from "../lib/content";
+import Base from "../layouts/Base.astro";
+import Hero from "../components/Hero.astro";
+import Contact from "../components/Contact.astro";
+import Guestbook from "../components/Guestbook.astro";
+import LiveStats from "../components/LiveStats.astro";
+import NowStrip from "../components/NowStrip.astro";
+import Row from "@edwrdq/ui/Row.astro";
+import Seam from "@edwrdq/ui/Seam.astro";
+import type { IconName } from "@edwrdq/ui/icons";
+
+const entries = await getIndex();
+---
+
+<Base>
+  <Hero>
+    <NowStrip slot="now" />
+    <LiveStats server:defer slot="live">
+      <span slot="fallback" class="label">LIVE — GITHUB</span>
+    </LiveStats>
+  </Hero>
+
+  <nav class="index gutter" aria-label="index">
+    <ol class="rows">
+      {
+        entries.map((e, i) => (
+          <Row
+            n={i + 1}
+            title={e.data.title}
+            desc={e.data.desc}
+            icon={e.data.icon as IconName}
+            href={e.data.href}
+            status={e.data.status}
+          />
+        ))
+      }
+    </ol>
+  </nav>
+
+  <Seam class="sec" />
+  <Contact />
+  <Seam class="sec" />
+  <Guestbook />
+</Base>
+
+<style>
+  .index {
+    margin-top: var(--section);
+  }
+  .rows {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  :global(.sec) {
+    margin-block: var(--section) 3rem;
+  }
+</style>

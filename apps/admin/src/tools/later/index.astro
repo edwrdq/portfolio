@@ -1,0 +1,517 @@
+---
+import { env } from "cloudflare:workers";
+import type { Item } from "./shared";
+import { deviceFromUA } from "./shared";
+
+const { results } = await env.DB.prepare(
+  `SELECT i.*, (SELECT count(*) FROM later_archive a WHERE a.item_id = i.id) AS has_text
+   FROM later_items i ORDER BY i.created_at DESC, i.id DESC LIMIT 2000`,
+).all<Item>();
+const data = JSON.stringify(results).replace(/</g, "\\u003c");
+const uaDevice = deviceFromUA(Astro.request.headers.get("user-agent"));
+const saved = Astro.url.searchParams.get("saved");
+
+const bookmarklet =
+  "javascript:(()=>{window.open('https://admin.edwrdq.com/share?url='+encodeURIComponent(location.href)+'&title='+encodeURIComponent(document.title),'later','width=460,height=520')})()";
+---
+
+<div class="later" data-later data-ua-device={uaDevice} data-saved={saved ?? ""}>
+  <form class="cap" data-cap>
+    <label class="sr-only" for="l-in">link or text</label>
+    <textarea id="l-in" class="field" rows="2" placeholder="paste a link (or any text) — enter saves" autocapitalize="none" spellcheck="false" data-in></textarea>
+    <div class="caprow">
+      <div class="chips" role="radiogroup" aria-label="this device">
+        <span class="hint">THIS IS MY</span>
+        <button type="button" class="chip" data-dev="phone" aria-pressed="false">phone</button>
+        <button type="button" class="chip" data-dev="laptop" aria-pressed="false">laptop</button>
+      </div>
+      <button type="submit" class="btn btn-primary">SAVE</button>
+    </div>
+    <p class="status" data-status aria-live="polite"></p>
+  </form>
+
+  <section class="incoming" data-incoming hidden>
+    <p class="label" data-incoming-label></p>
+    <ol class="list" data-incoming-list></ol>
+  </section>
+
+  <div class="tabs">
+    <div class="chips" role="tablist">
+      <button type="button" class="chip" data-view="inbox" aria-pressed="true">inbox</button>
+      <button type="button" class="chip" data-view="archive" aria-pressed="false">archive</button>
+    </div>
+    <input class="field q" type="search" placeholder="search archive (incl. saved text)" data-q hidden />
+  </div>
+  <p class="label count" data-count></p>
+  <ol class="list" data-list></ol>
+  <p class="empty" data-empty hidden></p>
+
+  <article class="reader" data-reader hidden>
+    <div class="reader-bar">
+      <button type="button" class="btn sm" data-close>← BACK</button>
+      <a class="btn sm" data-reader-open target="_blank" rel="noopener noreferrer">ORIGINAL ↗</a>
+    </div>
+    <p class="label" data-reader-site></p>
+    <h1 class="display reader-title" data-reader-title></h1>
+    <div class="reader-body" data-reader-body></div>
+  </article>
+
+  <details class="howto">
+    <summary class="label">SEND FROM ANYWHERE</summary>
+    <p><strong>laptop:</strong> drag this to your bookmarks bar → <a class="bm" href={bookmarklet}>later ↗</a>. click it on any page.</p>
+    <p><strong>android:</strong> install the admin app (add to home screen), then share → <em>edwrdq admin</em> from any app.</p>
+    <p><strong>iphone:</strong> ios doesn't support web share targets. make a shortcut: <em>receive urls/text from share sheet</em> → <em>open url</em> <code>https://admin.edwrdq.com/share?url=</code>[shortcut input, url-encoded].</p>
+  </details>
+
+  <script type="application/json" data-json set:html={data} />
+</div>
+
+<style>
+  .later {
+    max-width: 46rem;
+  }
+  .cap {
+    display: grid;
+    gap: 0.6rem;
+  }
+  .cap textarea {
+    font-size: var(--fs-read);
+  }
+  .caprow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+  }
+  .caprow .btn {
+    height: 2.9rem;
+    min-width: 7rem;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .chip {
+    min-height: 2.75rem;
+  }
+  .hint {
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-3);
+    margin-right: 0.25rem;
+  }
+  .status {
+    font-size: var(--fs-small);
+    color: var(--text);
+    min-height: 1.2em;
+  }
+  .incoming {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    border: 1px solid var(--dim-4);
+  }
+  .incoming .label {
+    color: var(--text);
+    margin-bottom: 0.5rem;
+  }
+  .tabs {
+    display: grid;
+    gap: 0.6rem;
+    margin-top: 2rem;
+  }
+  .count {
+    margin-block: 1.25rem 0.75rem;
+  }
+  .list {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .empty {
+    color: var(--dim-2);
+    padding-block: 1rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .btn.sm {
+    height: 2.75rem;
+    padding-inline: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* ---- items (built in script) */
+  .later :global(.it) {
+    display: grid;
+    gap: 0.4rem;
+    padding-block: 1rem 1.1rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .list :global(.it:nth-child(even)) {
+    margin-left: var(--shift);
+  }
+  .incoming :global(.it:first-child) {
+    border-top: 0;
+  }
+  .later :global(.it-title) {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.15rem;
+    letter-spacing: var(--track-tight);
+    line-height: 1.2;
+    color: var(--bone);
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+  .later :global(.it.is-read .it-title) {
+    color: var(--dim-1);
+  }
+  .later :global(.it-meta) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.7rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .later :global(.from) {
+    color: var(--text);
+  }
+  .later :global(.it-ex) {
+    color: var(--dim-1);
+    font-size: var(--fs-small);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .later :global(.it-note) {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: var(--fs-small);
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--seam-soft);
+    padding: 0.6rem 0.75rem;
+    max-height: 14rem;
+    overflow: auto;
+  }
+  .later :global(.row) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.3rem;
+  }
+  .later :global(.row .btn) {
+    height: 2.75rem;
+    padding-inline: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+  }
+  .later :global(.del) {
+    margin-left: auto;
+    color: var(--dim-2);
+  }
+  .later :global(.err) {
+    font-size: var(--fs-small);
+    color: var(--bone);
+  }
+  .later :global(.err:empty) {
+    display: none;
+  }
+
+  .reader {
+    margin-top: 1rem;
+  }
+  .reader-bar {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+  }
+  .reader-title {
+    margin-top: 1rem;
+    font-size: clamp(1.8rem, 6vw, 3rem);
+    font-weight: 700;
+    line-height: 0.95;
+    text-transform: lowercase;
+    overflow-wrap: anywhere;
+  }
+  /* the site's reading style */
+  .reader-body {
+    margin-top: 2rem;
+    max-width: 65ch;
+    font-size: var(--fs-read);
+    line-height: 1.75;
+    color: var(--text);
+  }
+  .reader-body :global(p + p) {
+    margin-top: 1.1em;
+  }
+  .reader-body :global(p) {
+    overflow-wrap: anywhere;
+    white-space: pre-line;
+  }
+
+  .howto {
+    margin-top: 3rem;
+    display: grid;
+    gap: 0.75rem;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+  .howto summary {
+    cursor: pointer;
+    min-height: 2.75rem;
+    display: flex;
+    align-items: center;
+  }
+  .howto p {
+    margin-top: 0.6rem;
+  }
+  .howto strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .bm {
+    color: var(--bone);
+    border: 1px solid var(--dim-3);
+    padding: 0.2rem 0.5rem;
+  }
+  .howto code {
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+</style>
+
+<script>
+  import type { Device, Item } from "./shared";
+
+  const root = document.querySelector<HTMLElement>("[data-later]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    let items: Item[] = JSON.parse($("[data-json]").textContent || "[]");
+    let view: "inbox" | "archive" = "inbox";
+    let matchIds: Set<number> | null = null;
+    const status = $("[data-status]");
+
+    // ---- this device: manual toggle wins, else the user agent's guess
+    const KEY = "later-device";
+    const stored = (() => {
+      try {
+        return localStorage.getItem(KEY) as Device | null;
+      } catch {
+        return null;
+      }
+    })();
+    let device: Device = stored === "phone" || stored === "laptop" ? stored : (root.dataset.uaDevice as Device);
+    const markDevice = () => root.querySelectorAll("[data-dev]").forEach((b) => b.setAttribute("aria-pressed", String((b as HTMLElement).dataset.dev === device)));
+    markDevice();
+
+    function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, any> = {}, ...kids: (Node | string | null | false | undefined)[]) {
+      const n = document.createElement(tag);
+      for (const [k, v] of Object.entries(props)) {
+        if (k === "class") n.className = v;
+        else if (k === "text") n.textContent = v;
+        else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+        else if (v !== undefined && v !== null && v !== false) n.setAttribute(k, v === true ? "" : String(v));
+      }
+      for (const kid of kids) if (kid) n.append(kid);
+      return n;
+    }
+    async function api(path: string, payload?: Record<string, unknown>) {
+      const res = await fetch(`/api/later/${path}`, payload ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) } : undefined);
+      const out = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !out.ok) throw new Error(out.error ?? `failed (${res.status})`);
+      return out;
+    }
+    const upsert = (it: Item) => {
+      const i = items.findIndex((x) => x.id === it.id);
+      if (i === -1) items.unshift(it);
+      else items[i] = it;
+    };
+    const ago = (unix: number) => {
+      const s = Date.now() / 1000 - unix;
+      if (s < 60) return "just now";
+      if (s < 3600) return `${Math.round(s / 60)}m ago`;
+      if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+      return `${Math.round(s / 86400)}d ago`;
+    };
+    const safeHref = (u: string | null) => (u && /^https?:\/\//i.test(u) ? u : null);
+
+    async function setStatus(it: Item, s: Item["status"]) {
+      if (it.status === s) return;
+      upsert((await api("status", { id: it.id, status: s })).item);
+      render();
+    }
+
+    // ---- reader
+    async function openReader(it: Item) {
+      const r = $("[data-reader]");
+      $("[data-reader-title]").textContent = it.title ?? it.url ?? "";
+      $("[data-reader-site]").textContent = (it.site ?? "").toUpperCase();
+      const open = $<HTMLAnchorElement>("[data-reader-open]");
+      const href = safeHref(it.url);
+      open.hidden = !href;
+      if (href) open.href = href;
+      const body = $("[data-reader-body]");
+      body.replaceChildren(el("p", { text: "…" }));
+      for (const s of ["[data-cap]", ".tabs", "[data-count]", "[data-list]", "[data-incoming]", "[data-empty]", ".howto"]) $(s).style.display = "none";
+      r.hidden = false;
+      window.scrollTo({ top: 0 });
+      try {
+        const { text } = await api(`text/${it.id}`);
+        body.replaceChildren(...String(text).split(/\n{2,}/).map((p) => el("p", { text: p })));
+      } catch (e) {
+        body.replaceChildren(el("p", { text: "no saved text for this one — open the original." }));
+      }
+      setStatus(it, it.status === "inbox" ? "read" : it.status).catch(() => {});
+    }
+    $("[data-close]").addEventListener("click", () => {
+      $("[data-reader]").hidden = true;
+      for (const s of ["[data-cap]", ".tabs", "[data-count]", "[data-list]", "[data-empty]", ".howto"]) $(s).style.display = "";
+      render();
+    });
+
+    // ---- items
+    function renderItem(it: Item) {
+      const err = el("p", { class: "err", "aria-live": "polite" });
+      const fail = (e: unknown) => (err.textContent = e instanceof Error ? e.message : "failed");
+      const href = safeHref(it.url);
+      const titleText = it.title ?? (it.url ? it.url.replace(/^https?:\/\//, "") : "note");
+      const title = href
+        ? el("a", { class: "it-title", href, target: "_blank", rel: "noopener noreferrer", text: titleText, onclick: () => setStatus(it, it.status === "inbox" ? "read" : it.status).catch(fail) })
+        : el("p", { class: "it-title", text: titleText });
+
+      const copyBtn = el("button", { type: "button", class: "btn", text: it.url ? "COPY LINK" : "COPY TEXT" });
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(it.url ?? it.note ?? "");
+          copyBtn.textContent = "COPIED";
+          setTimeout(() => (copyBtn.textContent = it.url ? "COPY LINK" : "COPY TEXT"), 900);
+        } catch (e) {
+          fail(e);
+        }
+      });
+
+      return el(
+        "li",
+        { class: `it is-${it.status}` },
+        title,
+        el("p", { class: "it-meta" },
+          el("span", { class: "from", text: `from ${it.sent_from}` }),
+          it.site ? el("span", { text: it.site }) : null,
+          el("span", { text: ago(it.created_at) }),
+          ...(it.tags ? it.tags.split(",").map((t) => el("span", { text: `#${t}` })) : []),
+          it.status !== "inbox" ? el("span", { text: `[${it.status}]` }) : null,
+        ),
+        it.excerpt ? el("p", { class: "it-ex", text: it.excerpt }) : null,
+        it.note ? el("p", { class: "it-note", text: it.note }) : null,
+        el("div", { class: "row" },
+          copyBtn,
+          it.has_text ? el("button", { type: "button", class: "btn", text: "READ", onclick: () => openReader(it) }) : null,
+          el("button", { type: "button", class: "btn", text: "TAG", onclick: async () => {
+            const t = prompt("tags (space separated)", it.tags.replace(/,/g, " "));
+            if (t === null) return;
+            try { upsert((await api("tags", { id: it.id, tags: t })).item); render(); } catch (e) { fail(e); }
+          } }),
+          it.status === "archived"
+            ? el("button", { type: "button", class: "btn", text: "UNARCHIVE", onclick: () => setStatus(it, "read").catch(fail) })
+            : el("button", { type: "button", class: "btn", text: "ARCHIVE", onclick: () => setStatus(it, "archived").catch(fail) }),
+          it.status !== "inbox" ? el("button", { type: "button", class: "btn", text: "TO INBOX", onclick: () => setStatus(it, "inbox").catch(fail) }) : null,
+          el("button", { type: "button", class: "btn del", text: "DELETE", onclick: async () => {
+            if (!confirm("delete this?")) return;
+            try { await api("delete", { id: it.id }); items = items.filter((x) => x.id !== it.id); render(); } catch (e) { fail(e); }
+          } }),
+        ),
+        err,
+      );
+    }
+
+    function render() {
+      // transfer: from the *other* device, last 24h, still unread
+      const other: Device = device === "phone" ? "laptop" : "phone";
+      const dayAgo = Date.now() / 1000 - 86400;
+      const incoming = items.filter((i) => i.sent_from === other && i.created_at > dayAgo && i.status === "inbox");
+      $("[data-incoming]").hidden = incoming.length === 0;
+      $("[data-incoming-label]").textContent = `FROM YOUR ${other.toUpperCase()} — LAST 24H`;
+      $("[data-incoming-list]").replaceChildren(...incoming.map(renderItem));
+      const incomingIds = new Set(incoming.map((i) => i.id));
+
+      const shown =
+        view === "inbox"
+          ? items.filter((i) => i.status === "inbox" && !incomingIds.has(i.id))
+          : items.filter((i) => i.status !== "inbox" && (!matchIds || matchIds.has(i.id)));
+      $("[data-list]").replaceChildren(...shown.map(renderItem));
+      $("[data-count]").textContent = `${shown.length} ${view.toUpperCase()}`;
+      const empty = $("[data-empty]");
+      empty.hidden = shown.length > 0;
+      empty.textContent = view === "inbox" ? "inbox zero." : matchIds ? "no matches." : "nothing read yet.";
+      $("[data-q]").hidden = view !== "archive";
+    }
+
+    // ---- capture
+    const input = $<HTMLTextAreaElement>("[data-in]");
+    const save = async () => {
+      const v = input.value.trim();
+      if (!v) return;
+      status.textContent = "…";
+      try {
+        const { item } = await api("save", { input: v, from: device });
+        upsert(item);
+        input.value = "";
+        status.textContent = item.url ? "saved. fetching the page in the background…" : "saved as a note.";
+        render();
+        if (item.url) setTimeout(async () => {
+          try {
+            upsert((await api(`item/${item.id}`)).item);
+            render();
+            status.textContent = "saved.";
+          } catch {}
+        }, 4000);
+      } catch (e) {
+        status.textContent = (e as Error).message;
+      }
+    };
+    $("[data-cap]").addEventListener("submit", (e) => (e.preventDefault(), save()));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) (e.preventDefault(), save());
+    });
+
+    root.addEventListener("click", (e) => {
+      const t = e.target as HTMLElement;
+      const dev = t.closest<HTMLElement>("[data-dev]");
+      if (dev) {
+        device = dev.dataset.dev as Device;
+        try { localStorage.setItem(KEY, device); } catch {}
+        markDevice();
+        render();
+      }
+      const v = t.closest<HTMLElement>("[data-view]");
+      if (v) {
+        view = v.dataset.view as typeof view;
+        root.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b === v)));
+        render();
+      }
+    });
+
+    // archive search runs server-side so it covers the saved article text
+    let timer: ReturnType<typeof setTimeout>;
+    $<HTMLInputElement>("[data-q]").addEventListener("input", (e) => {
+      clearTimeout(timer);
+      const q = (e.target as HTMLInputElement).value.trim();
+      timer = setTimeout(async () => {
+        if (!q) matchIds = null;
+        else {
+          try {
+            matchIds = new Set((await api(`search?q=${encodeURIComponent(q)}`)).ids);
+          } catch {
+            matchIds = null;
+          }
+        }
+        render();
+      }, 200);
+    });
+
+    if (root.dataset.saved) status.textContent = "saved from share.";
+    render();
+  }
+</script>

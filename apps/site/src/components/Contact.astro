@@ -1,0 +1,52 @@
+---
+import Label from "@edwrdq/ui/Label.astro";
+
+const lines = [
+  { k: "discord", v: "edwrdq" },
+  { k: "email", v: "hi@edwrdq.com", href: "mailto:hi@edwrdq.com" },
+  { k: "matrix", v: "[soon. i'll remember eventually]", dim: true },
+];
+---
+
+<section class="contact gutter" id="contact" aria-labelledby="contact-label">
+  <Label n="009" as="h2" id="contact-label">CONTACT</Label>
+  <dl class="lines">
+    {
+      lines.map((l) => (
+        <div class:list={["line", l.dim && "line-dim"]}>
+          <dt>{l.k}</dt>
+          <dd>{l.href ? <a href={l.href}>{l.v}</a> : l.v}</dd>
+        </div>
+      ))
+    }
+  </dl>
+</section>
+
+<style>
+  .lines {
+    margin-top: 2.5rem;
+  }
+  .line {
+    display: grid;
+    grid-template-columns: var(--offset) minmax(0, 1fr);
+    padding-block: 0.7rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  dt {
+    color: var(--dim-2);
+  }
+  dd {
+    color: var(--text);
+  }
+  dd a {
+    border-bottom: 1px solid var(--dim-4);
+    transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  dd a:hover {
+    color: var(--bone);
+    border-color: var(--bone);
+  }
+  .line-dim dd {
+    color: var(--dim-3);
+  }
+</style>

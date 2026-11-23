@@ -1,0 +1,80 @@
+---
+import "@edwrdq/ui/fonts.css";
+import "@edwrdq/ui/tokens.css";
+import "@edwrdq/ui/base.css";
+import Seam from "@edwrdq/ui/Seam.astro";
+import Label from "@edwrdq/ui/Label.astro";
+
+interface Props {
+  title?: string;
+  n?: string;
+}
+
+const { title, n } = Astro.props;
+const who = Astro.request.headers.get("x-admin-email") ?? (import.meta.env.DEV ? "dev" : "");
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#060606" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" content="ideas" />
+    <title>{title ? `${title} — admin` : "admin — edwrdq"}</title>
+  </head>
+  <body class="admin">
+    <header class="bar gutter">
+      <a href="/" class="label home">ADMIN — EDWRDQ</a>
+      {title && <Label n={n}>{title.toUpperCase()}</Label>}
+      <span class="label who">{who}</span>
+    </header>
+    <Seam />
+    <main class="gutter main">
+      <slot />
+    </main>
+  </body>
+</html>
+
+<style>
+  :global(body.admin) {
+    /* denser than the public site */
+    --section: 3rem;
+    --row-title: clamp(1.15rem, 3vw, 1.5rem);
+    --row-pad: 0.8rem;
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    height: 3rem;
+  }
+  .home {
+    color: var(--text);
+  }
+  .who {
+    margin-left: auto;
+    color: var(--dim-3);
+    text-transform: lowercase;
+    letter-spacing: 0.05em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .main {
+    padding-block: 2rem 4rem;
+  }
+  @media (max-width: 560px) {
+    .who {
+      display: none;
+    }
+  }
+</style>

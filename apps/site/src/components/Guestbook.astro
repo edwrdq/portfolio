@@ -1,0 +1,37 @@
+---
+import Label from "@edwrdq/ui/Label.astro";
+import MessageForm from "./MessageForm.astro";
+
+const presets = ["w site w chews", "hire him please @lockheedmartin", "teach me asm pls", "drop the alby", "matrix?? where???????", "wheres the plant"];
+---
+
+<section class="guestbook gutter" id="guestbook" aria-labelledby="gb-title">
+  <Label n="010">LEAVE A MESSAGE</Label>
+
+  <h2 class="display title" id="gb-title">say something<span class="acid">.</span></h2>
+
+  <div class="form-wrap">
+    <MessageForm endpoint="/api/messages" id="gb" presets={presets} />
+  </div>
+</section>
+
+<style>
+  .title {
+    margin-top: 2.5rem;
+    font-size: clamp(2.5rem, 9vw, 5.5rem);
+    font-weight: 600;
+    line-height: 0.9;
+    text-transform: lowercase;
+  }
+  .acid {
+    color: var(--acid);
+  }
+  .form-wrap {
+    margin-top: 2.5rem;
+  }
+  @media (min-width: 720px) {
+    .form-wrap {
+      margin-left: var(--offset);
+    }
+  }
+</style>

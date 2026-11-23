@@ -1,0 +1,217 @@
+---
+// the square form used by the guestbook and blog comments.
+// turnstile loads lazily — only once someone starts typing or hits send.
+import { TURNSTILE_SITEKEY } from "../lib/turnstile";
+
+interface Props {
+  endpoint: string;
+  id: string;
+  presets?: string[];
+  placeholder?: string;
+  slug?: string;
+}
+
+const { endpoint, id, presets = [], placeholder = "or type whatever", slug } = Astro.props;
+---
+
+<form class="form" data-msg-form data-endpoint={endpoint} data-slug={slug} data-sitekey={TURNSTILE_SITEKEY} novalidate>
+  {
+    presets.length > 0 && (
+      <div class="chips" role="group" aria-label="quick picks">
+        {presets.map((p) => (
+          <button type="button" class="chip" data-preset={p} aria-pressed="false">
+            {p}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  <label class="sr-only" for={`${id}-body`}>message</label>
+  <textarea id={`${id}-body`} name="body" class="field" placeholder={placeholder} maxlength="1000" required rows="4"
+  ></textarea>
+
+  <div class="foot">
+    <label class="sr-only" for={`${id}-name`}>name (optional)</label>
+    <input
+      id={`${id}-name`}
+      name="name"
+      class="field"
+      placeholder="name (optional)"
+      maxlength="40"
+      autocomplete="nickname"
+    />
+    <button type="submit" class="btn btn-primary send">SEND</button>
+  </div>
+
+  <div class="ts" data-ts></div>
+  <p class="status" data-status aria-live="polite">anonymous unless you sign it</p>
+</form>
+
+<style>
+  .form {
+    display: grid;
+    gap: 0.75rem;
+    max-width: 40rem;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .foot {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.75rem;
+  }
+  .send {
+    min-width: 7.5rem;
+  }
+  .ts:empty {
+    display: none;
+  }
+  .status {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .status[data-tone="ok"] {
+    color: var(--text);
+  }
+  .status[data-tone="err"] {
+    color: var(--bone);
+  }
+</style>
+
+<script>
+  type TS = {
+    render: (el: HTMLElement, opts: Record<string, unknown>) => string;
+    execute: (id: string) => void;
+    reset: (id: string) => void;
+  };
+  declare global {
+    interface Window {
+      turnstile?: TS;
+    }
+  }
+
+  let scriptP: Promise<TS> | null = null;
+  const loadTurnstile = () =>
+    (scriptP ??= new Promise<TS>((resolve, reject) => {
+      if (window.turnstile) return resolve(window.turnstile);
+      const s = document.createElement("script");
+      s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      s.async = true;
+      s.onload = () => (window.turnstile ? resolve(window.turnstile) : reject(new Error("turnstile")));
+      s.onerror = () => {
+        scriptP = null;
+        reject(new Error("turnstile"));
+      };
+      document.head.appendChild(s);
+    }));
+
+  for (const form of document.querySelectorAll<HTMLFormElement>("[data-msg-form]")) {
+    const area = form.querySelector("textarea")!;
+    const name = form.querySelector<HTMLInputElement>('input[name="name"]')!;
+    const send = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    const status = form.querySelector<HTMLElement>("[data-status]")!;
+    const tsBox = form.querySelector<HTMLElement>("[data-ts]")!;
+    const chips = [...form.querySelectorAll<HTMLButtonElement>("[data-preset]")];
+    const idle = status.textContent ?? "";
+
+    const say = (text: string, tone?: "ok" | "err") => {
+      status.textContent = text;
+      if (tone) status.dataset.tone = tone;
+      else delete status.dataset.tone;
+    };
+
+    // ---- preset chips
+    const sync = () => chips.forEach((c) => c.setAttribute("aria-pressed", String(area.value === c.dataset.preset)));
+    chips.forEach((chip) =>
+      chip.addEventListener("click", () => {
+        area.value = chip.dataset.preset ?? "";
+        sync();
+        area.focus();
+        area.setSelectionRange(area.value.length, area.value.length);
+      }),
+    );
+    area.addEventListener("input", sync);
+
+    // ---- turnstile: invisible unless it needs you. rendered once, executed per send.
+    let widgetId: string | null = null;
+    let pending: { resolve: (t: string) => void; reject: (e: Error) => void } | null = null;
+
+    const ensureWidget = async () => {
+      const ts = await loadTurnstile();
+      widgetId ??= ts.render(tsBox, {
+        sitekey: form.dataset.sitekey,
+        theme: "dark",
+        appearance: "interaction-only",
+        execution: "execute",
+        callback: (t: string) => pending?.resolve(t),
+        "error-callback": () => pending?.reject(new Error("turnstile")),
+        "expired-callback": () => widgetId && ts.reset(widgetId),
+      });
+      return ts;
+    };
+
+    const getToken = async () => {
+      const ts = await ensureWidget();
+      return new Promise<string>((resolve, reject) => {
+        pending = { resolve, reject };
+        ts.execute(widgetId!);
+      }).finally(() => {
+        pending = null;
+      });
+    };
+
+    // warm it up once they start writing
+    const warm = () => ensureWidget().catch(() => {});
+    area.addEventListener("focus", warm, { once: true });
+
+    // ---- send
+    let busy = false;
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (busy) return;
+      const body = area.value.trim();
+      if (!body) {
+        say("say something first.", "err");
+        area.focus();
+        return;
+      }
+
+      busy = true;
+      send.disabled = true;
+      say("checking you're human…");
+
+      try {
+        const token = await getToken().catch(() => {
+          throw new Error("the bot check didn't load. try again?");
+        });
+        say("sending…");
+        const res = await fetch(form.dataset.endpoint!, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ body, name: name.value.trim(), token, slug: form.dataset.slug }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!res.ok || !data.ok) throw new Error(data.error ?? "that didn't work. try again?");
+
+        form.reset();
+        sync();
+        say("sent. eddy will see it.", "ok");
+      } catch (err) {
+        say(err instanceof Error ? err.message : "that didn't work. try again?", "err");
+      } finally {
+        busy = false;
+        send.disabled = false;
+        if (widgetId && window.turnstile) window.turnstile.reset(widgetId);
+      }
+    });
+
+    form.addEventListener("input", () => {
+      if (status.dataset.tone) say(idle);
+    });
+  }
+</script>

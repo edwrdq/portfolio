@@ -1,0 +1,285 @@
+---
+// edwrdq.com/d/<token> — the download page. expired / used up / missing all look the
+// same ("this drop expired."), and expired files get deleted on the way out.
+import { env } from "cloudflare:workers";
+import { bytes, deleteDrop, dropState, hasLiveTickets, timeLeft, TOKEN_RE, type Drop, type DropFile } from "@edwrdq/drop";
+import Base from "../../../layouts/Base.astro";
+import Label from "@edwrdq/ui/Label.astro";
+
+export const prerender = false;
+
+const token = Astro.params.token ?? "";
+let drop: Drop | null = null;
+let files: DropFile[] = [];
+if (TOKEN_RE.test(token)) {
+  drop = await env.DB.prepare("SELECT * FROM drops WHERE token = ?").bind(token).first<Drop>();
+  if (drop) files = (await env.DB.prepare("SELECT * FROM drop_files WHERE drop_token = ? AND done = 1 ORDER BY idx").bind(token).all<DropFile>()).results;
+}
+
+const state = drop ? dropState(drop) : "missing";
+const live = state === "live" && files.length > 0;
+
+// delete on access — but never under a download that's still running
+if (drop && (state === "expired" || state === "used")) {
+  const d = drop;
+  Astro.locals.cfContext?.waitUntil(
+    hasLiveTickets(env, d.token)
+      .then((busy) => (busy ? null : deleteDrop(env, d.token)))
+      .catch((e) => console.error("drop delete", e)),
+  );
+}
+
+Astro.response.headers.set("cache-control", "no-store");
+Astro.response.headers.set("x-robots-tag", "noindex, nofollow");
+Astro.response.headers.set("referrer-policy", "no-referrer");
+if (!live) Astro.response.status = 404;
+
+const total = files.reduce((a, f) => a + f.size, 0);
+const left = drop?.max_downloads ? drop.max_downloads - drop.download_count : null;
+const expiresIso = drop ? new Date(drop.expires_at * 1000).toISOString() : "";
+---
+
+<Base title="drop" description="a private drop." noindex>
+  {
+    live && drop ? (
+      <section class="dl gutter" data-dl data-token={token}>
+        <Label>DROP</Label>
+        <h1 class="display big">
+          {files.length} {files.length === 1 ? "file" : "files"}
+          <span class="acid">.</span>
+        </h1>
+
+        <div class="facts">
+          <p>
+            <span class="k">size</span>
+            <span>{bytes(total)}</span>
+          </p>
+          <p>
+            <span class="k">expires</span>
+            <span>
+              <time datetime={expiresIso} data-left>{timeLeft(drop.expires_at)}</time>
+            </span>
+          </p>
+          {left !== null && (
+            <p>
+              <span class="k">downloads</span>
+              <span>{left} left</span>
+            </p>
+          )}
+        </div>
+
+        {drop.note && <p class="note">{drop.note}</p>}
+
+        <ol class="files">
+          {files.map((f, i) => (
+            <li>
+              <span class="n">{String(i + 1).padStart(3, "0")}</span>
+              <span class="fn">{f.filename}</span>
+              <span class="fs">{bytes(f.size)}</span>
+              <a class="one" data-one={i} hidden>get</a>
+            </li>
+          ))}
+        </ol>
+
+        <form class="go" data-form>
+          {drop.password_hash && (
+            <>
+              <label class="sr-only" for="drop-pw">password</label>
+              <input id="drop-pw" class="field" type="password" name="password" placeholder="password" autocomplete="off" required />
+            </>
+          )}
+          <button type="submit" class="btn btn-primary dl-btn">DOWNLOAD{files.length > 1 ? " ALL" : ""}</button>
+          <p class="status" data-status aria-live="polite">
+            {files.length > 1 ? "your browser may ask to allow multiple downloads." : ""}
+          </p>
+        </form>
+      </section>
+    ) : (
+      <section class="dl gutter">
+        <Label>DROP</Label>
+        <h1 class="display big">
+          expired<span class="acid">.</span>
+        </h1>
+        <p class="note dim">this drop expired.</p>
+        <p class="back label">
+          <a href="/">← EDWRDQ</a>
+        </p>
+      </section>
+    )
+  }
+</Base>
+
+<style>
+  .dl {
+    padding-top: clamp(3rem, 10vw, 7rem);
+    max-width: 60rem;
+  }
+  .big {
+    margin-top: 2rem;
+    font-size: clamp(4rem, 18vw, 11rem);
+    font-weight: 800;
+    letter-spacing: -0.06em;
+    line-height: 0.82;
+    text-transform: lowercase;
+  }
+  .acid {
+    color: var(--acid);
+  }
+  .facts {
+    margin-top: 2.5rem;
+    margin-left: var(--offset);
+    display: grid;
+    gap: 0.35rem;
+  }
+  .facts p {
+    display: flex;
+    gap: 1rem;
+  }
+  .k {
+    width: 6rem;
+    color: var(--dim-2);
+  }
+  .note {
+    margin-top: 2rem;
+    margin-left: var(--offset);
+    max-width: 48ch;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--dim-1);
+  }
+  .files {
+    margin-top: 3rem;
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .files li {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    padding-block: 0.8rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .files li:nth-child(even) {
+    margin-left: var(--shift);
+  }
+  .n {
+    color: var(--dim-3);
+    font-size: var(--fs-small);
+    font-variant-numeric: tabular-nums;
+  }
+  .fn {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--text);
+  }
+  .fs {
+    color: var(--dim-2);
+    font-size: var(--fs-small);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .one {
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+    border-bottom: 1px solid var(--dim-4);
+  }
+  .one:hover {
+    color: var(--bone);
+  }
+  .go {
+    margin-top: 2rem;
+    display: grid;
+    gap: 0.75rem;
+    max-width: 24rem;
+  }
+  .dl-btn {
+    height: 3.25rem;
+  }
+  .status {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .status[data-tone="err"] {
+    color: var(--bone);
+  }
+  .back {
+    margin-top: 4rem;
+  }
+  .back a {
+    color: var(--dim-1);
+  }
+  @media (min-width: 720px) {
+    .go {
+      margin-left: var(--offset);
+    }
+  }
+</style>
+
+<script>
+  const root = document.querySelector<HTMLElement>("[data-dl]");
+  if (root) {
+    const form = root.querySelector<HTMLFormElement>("[data-form]")!;
+    const status = root.querySelector<HTMLElement>("[data-status]")!;
+    const btn = form.querySelector<HTMLButtonElement>("button")!;
+    const pw = form.querySelector<HTMLInputElement>('[name="password"]');
+    const leftEl = root.querySelector<HTMLTimeElement>("[data-left]");
+
+    // live countdown
+    const tick = () => {
+      if (!leftEl) return;
+      const s = Math.floor((Date.parse(leftEl.dateTime) - Date.now()) / 1000);
+      if (s <= 0) return void location.reload();
+      leftEl.textContent =
+        s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s left` : s < 86400 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m left` : `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h left`;
+    };
+    tick();
+    setInterval(tick, 1000);
+
+    const say = (t: string, err = false) => {
+      status.textContent = t;
+      if (err) status.dataset.tone = "err";
+      else delete status.dataset.tone;
+    };
+
+    const fetchFile = (href: string) => {
+      const a = document.createElement("a");
+      a.href = href;
+      a.rel = "noopener";
+      document.body.append(a);
+      a.click();
+      a.remove();
+    };
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      btn.disabled = true;
+      say("…");
+      try {
+        const res = await fetch(`/d/${root.dataset.token}/start`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ password: pw?.value ?? "" }),
+        });
+        const out = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; files?: string[] };
+        if (!res.ok || !out.ok || !out.files) {
+          if (res.status === 404) return void location.reload();
+          throw new Error(out.error ?? "that didn't work.");
+        }
+        // per-file links stay usable for 6h (resume, retry)
+        out.files.forEach((href, i) => {
+          const a = root.querySelector<HTMLAnchorElement>(`[data-one="${i}"]`);
+          if (a) (a.href = href), (a.hidden = false);
+        });
+        say(out.files.length > 1 ? "downloading… use the get links if any were blocked." : "downloading…");
+        for (const [i, href] of out.files.entries()) {
+          fetchFile(href);
+          if (i < out.files.length - 1) await new Promise((r) => setTimeout(r, 700));
+        }
+        if (pw) pw.disabled = true;
+      } catch (err) {
+        say(err instanceof Error ? err.message : "that didn't work.", true);
+        btn.disabled = false;
+      }
+    });
+  }
+</script>

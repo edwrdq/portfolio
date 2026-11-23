@@ -1,0 +1,129 @@
+---
+import type { GetStaticPaths } from "astro";
+import { getCollection, type CollectionEntry } from "astro:content";
+import Base from "../layouts/Base.astro";
+import PageHead from "../components/PageHead.astro";
+import Entry from "../components/Entry.astro";
+import Timeline from "../components/Timeline.astro";
+import Label from "@edwrdq/ui/Label.astro";
+import { getIndex, pad } from "../lib/content";
+
+export const getStaticPaths = (async () => {
+  const index = await getIndex();
+  const projects = await getCollection("projects");
+  return index
+    .map((s, i) => ({ s, n: pad(i + 1) }))
+    .filter(({ s }) => s.id !== "blog")
+    .map(({ s, n }) => ({
+      params: { section: s.id },
+      props: {
+        section: s,
+        n,
+        entries: projects
+          .filter((p) => p.data.section === s.id)
+          .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf()),
+      },
+    }));
+}) satisfies GetStaticPaths;
+
+interface Props {
+  section: CollectionEntry<"index">;
+  n: string;
+  entries: CollectionEntry<"projects">[];
+}
+
+const { section, n, entries } = Astro.props;
+const { title, desc, intro, groups } = section.data;
+const isTimeline = section.id === "work";
+
+// no groups → one unnamed block. groups → one block each, in yml order;
+// entries without a matching group land in a trailing "other" block.
+type Block = { id?: string; n?: string; title?: string; intro?: string; entries: CollectionEntry<"projects">[] };
+const blocks: Block[] = groups?.length
+  ? [
+      ...groups.map((g, i) => ({
+        ...g,
+        n: `${n}.${i + 1}`,
+        entries: entries.filter((e) => e.data.group === g.id),
+      })),
+      ...(() => {
+        const rest = entries.filter((e) => !groups.some((g) => g.id === e.data.group));
+        return rest.length ? [{ id: "other", n: `${n}.${groups.length + 1}`, title: "other", entries: rest }] : [];
+      })(),
+    ]
+  : [{ entries }];
+---
+
+<Base title={title} description={intro ?? desc} og={section.id}>
+  <PageHead n={n} label={desc.toUpperCase()} title={title} intro={intro} />
+
+  {
+    blocks.map((b) => (
+      <section class="list gutter" id={b.id} aria-label={b.title}>
+        {b.title && (
+          <header class="group">
+            <Label n={b.n}>{b.title.toUpperCase()}</Label>
+            <h2 class="display group-title">{b.title}</h2>
+            {b.intro && <p class="group-intro">{b.intro}</p>}
+          </header>
+        )}
+        {b.entries.length === 0 ? (
+          <p class="empty">nothing here yet<span class="cursor">_</span></p>
+        ) : isTimeline ? (
+          <Timeline entries={b.entries} />
+        ) : (
+          <div class="entries">
+            {b.entries.map((e, i) => (
+              <Entry entry={e} n={pad(i + 1)} />
+            ))}
+          </div>
+        )}
+      </section>
+    ))
+  }
+
+  <nav class="back gutter label" aria-label="back">
+    <a href="/">← INDEX</a>
+  </nav>
+</Base>
+
+<style>
+  .list + .list {
+    margin-top: var(--section);
+  }
+  .group {
+    padding-bottom: 2rem;
+  }
+  .group-title {
+    margin-top: 1.5rem;
+    font-size: clamp(2.25rem, 8vw, 4.5rem);
+    font-weight: 600;
+    line-height: 0.9;
+    text-transform: lowercase;
+  }
+  .group-intro {
+    margin-top: 1.25rem;
+    margin-left: var(--offset);
+    color: var(--dim-1);
+    max-width: 36ch;
+  }
+  .entries {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .empty {
+    margin-left: var(--offset);
+    color: var(--dim-2);
+    padding-block: 2rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .back {
+    margin-top: 4rem;
+  }
+  .back a {
+    color: var(--dim-1);
+    transition: color var(--fast) var(--ease);
+  }
+  .back a:hover {
+    color: var(--bone);
+  }
+</style>

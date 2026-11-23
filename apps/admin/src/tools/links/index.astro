@@ -1,0 +1,469 @@
+---
+import { env } from "cloudflare:workers";
+import { ago, when } from "../../lib/http";
+
+type Link = { id: number; slug: string; url: string; clicks: number; created_at: number; expires_at: number | null; disabled: number };
+
+const { results: links } = await env.DB.prepare("SELECT * FROM links ORDER BY created_at DESC, id DESC LIMIT 500").all<Link>();
+const BASE = "https://edwrdq.com/x/";
+const nowS = Math.floor(Date.now() / 1000);
+
+const state = (l: Link) => (l.disabled ? "off" : l.expires_at && l.expires_at <= nowS ? "expired" : "live");
+const left = (exp: number) => {
+  const s = exp - nowS;
+  if (s <= 0) return `expired ${ago(exp)}`;
+  if (s < 3600) return `${Math.ceil(s / 60)}m left`;
+  if (s < 86400) return `${Math.round(s / 3600)}h left`;
+  return `${Math.round(s / 86400)}d left`;
+};
+const hostOf = (u: string) => {
+  try {
+    const x = new URL(u);
+    return x.host + (x.pathname === "/" ? "" : x.pathname);
+  } catch {
+    return u;
+  }
+};
+const total = links.reduce((a, l) => a + l.clicks, 0);
+---
+
+<div class="links-tool" data-links data-base={BASE}>
+  <form class="create" data-create>
+    <label class="sr-only" for="lk-url">url</label>
+    <input id="lk-url" class="field" name="url" placeholder="https://…" inputmode="url" autocomplete="off" autofocus required />
+    <div class="row">
+      <span class="prefix">edwrdq.com/x/</span>
+      <label class="sr-only" for="lk-slug">slug</label>
+      <input id="lk-slug" class="field slug" name="slug" placeholder="random" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" />
+    </div>
+    <div class="chips" role="radiogroup" aria-label="expires">
+      <span class="hint">EXPIRES</span>
+      <button type="button" class="chip" data-exp="never" aria-pressed="true">never</button>
+      <button type="button" class="chip" data-exp="1d" aria-pressed="false">1d</button>
+      <button type="button" class="chip" data-exp="7d" aria-pressed="false">7d</button>
+      <button type="button" class="chip" data-exp="30d" aria-pressed="false">30d</button>
+      <button type="button" class="chip" data-exp="custom" aria-pressed="false">custom</button>
+      <input type="datetime-local" class="field when" name="when" hidden />
+    </div>
+    <div class="row">
+      <button type="submit" class="btn btn-primary">SHORTEN</button>
+      <span class="status" data-status aria-live="polite"></span>
+    </div>
+  </form>
+
+  <p class="label sum">{links.length} LINKS · {total} CLICKS</p>
+
+  {
+    links.length === 0 ? (
+      <p class="empty dimmer">no links yet.</p>
+    ) : (
+      <ol class="list">
+        {links.map((l) => (
+          <li class:list={["l", `is-${state(l)}`]} data-link data-id={l.id} data-slug={l.slug} data-url={l.url} data-exp={l.expires_at ?? ""}>
+            <div class="top">
+              <button type="button" class="slug-btn" data-copy={BASE + l.slug} title="copy">
+                /x/{l.slug}
+              </button>
+              <span class="clicks">{l.clicks} {l.clicks === 1 ? "click" : "clicks"}</span>
+            </div>
+            <a class="dest" href={l.url} target="_blank" rel="noopener noreferrer">{hostOf(l.url)}</a>
+            <p class="meta">
+              <span class="state">[{state(l)}]</span>
+              <time title={when(l.created_at)}>{ago(l.created_at)}</time>
+              {l.expires_at && <span>· {left(l.expires_at)}</span>}
+            </p>
+            <div class="actions">
+              <button type="button" class="btn small" data-act="qr">QR</button>
+              <button type="button" class="btn small" data-act="edit">EDIT</button>
+              <button type="button" class="btn small" data-act="toggle" data-disabled={l.disabled ? "0" : "1"}>
+                {l.disabled ? "TURN ON" : "TURN OFF"}
+              </button>
+              <button type="button" class="btn small del" data-act="delete">DELETE</button>
+            </div>
+
+            <div class="qr" data-qr hidden>
+              <div class="qr-img" data-qr-img />
+              <div class="qr-side">
+                <label class="check">
+                  <input type="checkbox" data-qr-label checked /> EDWRDQ label
+                </label>
+                <label class="check" title="for old scanners / print — bone-on-black is an inverted code">
+                  <input type="checkbox" data-qr-flip /> flip (black on bone)
+                </label>
+                <button type="button" class="btn small" data-act="svg">DOWNLOAD SVG</button>
+                <button type="button" class="btn small" data-act="png">DOWNLOAD PNG</button>
+              </div>
+            </div>
+
+            <form class="edit" data-edit hidden>
+              <input class="field" name="url" value={l.url} inputmode="url" required />
+              <div class="row">
+                <span class="prefix">/x/</span>
+                <input class="field slug" name="slug" value={l.slug} maxlength="40" autocapitalize="none" spellcheck="false" required />
+              </div>
+              <div class="row">
+                <span class="hint">EXPIRES</span>
+                <input type="datetime-local" class="field when" name="when" />
+                <button type="button" class="btn small" data-act="no-expiry">NEVER</button>
+              </div>
+              <div class="row">
+                <button type="submit" class="btn">SAVE</button>
+                <button type="button" class="btn small" data-act="cancel">CANCEL</button>
+              </div>
+            </form>
+            <p class="err" data-err aria-live="polite" />
+          </li>
+        ))}
+      </ol>
+    )
+  }
+</div>
+
+<style>
+  .links-tool {
+    max-width: 52rem;
+  }
+  .create {
+    display: grid;
+    gap: 0.75rem;
+    padding-bottom: 2rem;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+  }
+  .prefix {
+    color: var(--dim-2);
+  }
+  .slug {
+    flex: 1 1 10rem;
+    width: auto;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .chip {
+    min-height: 2.25rem;
+  }
+  .hint {
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-3);
+  }
+  .when {
+    width: auto;
+    color-scheme: dark;
+  }
+  .status {
+    font-size: var(--fs-small);
+    color: var(--bone);
+  }
+
+  .sum {
+    margin-bottom: 1rem;
+  }
+  .list {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .l {
+    display: grid;
+    gap: 0.4rem;
+    padding-block: 1rem 1.1rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .l:nth-child(even) {
+    margin-left: var(--shift);
+  }
+  .top {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+  }
+  .slug-btn {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.35rem;
+    letter-spacing: var(--track-tight);
+    color: var(--bone);
+    text-align: left;
+  }
+  .slug-btn:hover {
+    color: var(--acid);
+  }
+  .clicks {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+  .dest {
+    color: var(--dim-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .dest:hover {
+    color: var(--bone);
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.6rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .is-live .state {
+    color: var(--text);
+  }
+  .is-off .slug-btn,
+  .is-expired .slug-btn {
+    color: var(--dim-3);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+  }
+  .btn.small {
+    height: 2.25rem;
+    padding-inline: 0.8rem;
+  }
+  .del {
+    margin-left: auto;
+    color: var(--dim-2);
+  }
+
+  .qr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.75rem;
+  }
+  .qr[hidden],
+  .edit[hidden] {
+    display: none;
+  }
+  .qr-img {
+    width: 12rem;
+    border: 1px solid var(--seam);
+  }
+  .qr-img :global(svg) {
+    width: 100%;
+    height: auto;
+  }
+  .qr-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+    min-height: 2.25rem;
+  }
+  .check input {
+    appearance: auto;
+    accent-color: var(--acid);
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .edit {
+    display: grid;
+    gap: 0.6rem;
+    margin-top: 0.75rem;
+  }
+  .err {
+    font-size: var(--fs-small);
+    color: var(--bone);
+  }
+  .err:empty {
+    display: none;
+  }
+  .empty {
+    padding-block: 1rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+</style>
+
+<script>
+  import { qrSvg } from "./qr";
+
+  const root = document.querySelector<HTMLElement>("[data-links]");
+  if (root) {
+    const base = root.dataset.base!;
+    const css = getComputedStyle(document.documentElement);
+    const colors = { fg: css.getPropertyValue("--bone").trim(), bg: css.getPropertyValue("--bg").trim() };
+
+    const post = async (action: string, payload: Record<string, unknown>) => {
+      const res = await fetch(`/api/links/${action}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; slug?: string };
+      if (!res.ok || !out.ok) throw new Error(out.error ?? `failed (${res.status})`);
+      return out;
+    };
+
+    const fromLocal = (v: string) => (v ? Math.floor(new Date(v).getTime() / 1000) : null);
+    const toLocal = (unix: number) => {
+      const d = new Date(unix * 1000);
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      return d.toISOString().slice(0, 16);
+    };
+
+    // ---- create
+    const create = root.querySelector<HTMLFormElement>("[data-create]")!;
+    const status = create.querySelector<HTMLElement>("[data-status]")!;
+    const when = create.querySelector<HTMLInputElement>('[name="when"]')!;
+    create.addEventListener("click", (e) => {
+      const chip = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-exp]");
+      if (!chip) return;
+      create.querySelectorAll("[data-exp]").forEach((c) => c.setAttribute("aria-pressed", String(c === chip)));
+      when.hidden = chip.dataset.exp !== "custom";
+      if (!when.hidden) when.focus();
+    });
+    create.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = new FormData(create);
+      const pick = create.querySelector<HTMLButtonElement>('[data-exp][aria-pressed="true"]')!.dataset.exp!;
+      const days = { "1d": 1, "7d": 7, "30d": 30 }[pick as "1d"];
+      const expires_at = pick === "never" ? null : pick === "custom" ? fromLocal(String(f.get("when") ?? "")) : Math.floor(Date.now() / 1000) + days * 86400;
+      status.textContent = "…";
+      try {
+        const out = await post("create", { url: f.get("url"), slug: f.get("slug"), expires_at });
+        await navigator.clipboard?.writeText(base + out.slug).catch(() => {});
+        status.textContent = `edwrdq.com/x/${out.slug} — copied`;
+        setTimeout(() => location.reload(), 900);
+      } catch (err) {
+        status.textContent = err instanceof Error ? err.message : "failed";
+      }
+    });
+
+    // ---- rows
+    const renderQr = (li: HTMLElement) => {
+      const label = li.querySelector<HTMLInputElement>("[data-qr-label]")!.checked;
+      const flip = li.querySelector<HTMLInputElement>("[data-qr-flip]")!.checked;
+      const { svg } = qrSvg(base + li.dataset.slug, {
+        fg: flip ? colors.bg : colors.fg,
+        bg: flip ? colors.fg : colors.bg,
+        label: label ? "EDWRDQ" : null,
+      });
+      li.querySelector<HTMLElement>("[data-qr-img]")!.innerHTML = svg; // svg we built ourselves; no user text in it
+      return svg;
+    };
+    const download = (blob: Blob, name: string) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    };
+    const toPng = (svg: string, scale = 16) =>
+      new Promise<Blob>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement("canvas");
+          c.width = (img.naturalWidth / 10) * scale;
+          c.height = (img.naturalHeight / 10) * scale;
+          const ctx = c.getContext("2d")!;
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(img, 0, 0, c.width, c.height);
+          c.toBlob((b) => (b ? resolve(b) : reject(new Error("png"))), "image/png");
+        };
+        img.onerror = () => reject(new Error("png"));
+        img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      });
+
+    root.addEventListener("change", (e) => {
+      const li = (e.target as HTMLElement).closest<HTMLElement>("[data-link]");
+      if (li && (e.target as HTMLElement).matches("[data-qr-label], [data-qr-flip]")) renderQr(li);
+    });
+
+    root.addEventListener("click", async (e) => {
+      const t = e.target as HTMLElement;
+      const copy = t.closest<HTMLButtonElement>("[data-copy]");
+      if (copy) {
+        await navigator.clipboard?.writeText(copy.dataset.copy!).catch(() => {});
+        const was = copy.textContent;
+        copy.textContent = "copied";
+        setTimeout(() => (copy.textContent = was), 900);
+        return;
+      }
+      const btn = t.closest<HTMLButtonElement>("[data-act]");
+      const li = t.closest<HTMLElement>("[data-link]");
+      if (!btn || !li) return;
+      const err = li.querySelector<HTMLElement>("[data-err]")!;
+      err.textContent = "";
+      const id = Number(li.dataset.id);
+      const edit = li.querySelector<HTMLFormElement>("[data-edit]")!;
+      try {
+        switch (btn.dataset.act) {
+          case "qr": {
+            const box = li.querySelector<HTMLElement>("[data-qr]")!;
+            box.hidden = !box.hidden;
+            if (!box.hidden) renderQr(li);
+            break;
+          }
+          case "svg":
+          case "png": {
+            const svg = renderQr(li);
+            const flip = li.querySelector<HTMLInputElement>("[data-qr-flip]")!.checked ? "-flip" : "";
+            const name = `edwrdq-${li.dataset.slug}${flip}`;
+            if (btn.dataset.act === "svg") download(new Blob([svg], { type: "image/svg+xml" }), `${name}.svg`);
+            else download(await toPng(svg), `${name}.png`);
+            break;
+          }
+          case "edit": {
+            edit.hidden = !edit.hidden;
+            const w = edit.querySelector<HTMLInputElement>('[name="when"]')!;
+            w.value = li.dataset.exp ? toLocal(Number(li.dataset.exp)) : "";
+            break;
+          }
+          case "no-expiry":
+            edit.querySelector<HTMLInputElement>('[name="when"]')!.value = "";
+            break;
+          case "cancel":
+            edit.hidden = true;
+            break;
+          case "toggle":
+            await post("toggle", { id, disabled: btn.dataset.disabled === "1" });
+            location.reload();
+            break;
+          case "delete":
+            if (!confirm(`delete /x/${li.dataset.slug}? clicks go with it.`)) return;
+            await post("delete", { id });
+            location.reload();
+            break;
+        }
+      } catch (ex) {
+        err.textContent = ex instanceof Error ? ex.message : "failed";
+      }
+    });
+
+    root.addEventListener("submit", async (e) => {
+      const form = (e.target as HTMLElement).closest<HTMLFormElement>("[data-edit]");
+      if (!form) return;
+      e.preventDefault();
+      const li = form.closest<HTMLElement>("[data-link]")!;
+      const f = new FormData(form);
+      try {
+        await post("update", { id: Number(li.dataset.id), url: f.get("url"), slug: f.get("slug"), expires_at: fromLocal(String(f.get("when") ?? "")) });
+        location.reload();
+      } catch (ex) {
+        li.querySelector<HTMLElement>("[data-err]")!.textContent = ex instanceof Error ? ex.message : "failed";
+      }
+    });
+  }
+</script>

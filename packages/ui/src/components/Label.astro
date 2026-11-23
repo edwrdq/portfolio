@@ -1,0 +1,32 @@
+---
+// uppercase mono label. <Label n="009">contact</Label> → 009 — CONTACT
+import type { HTMLTag } from "astro/types";
+
+interface Props {
+  n?: string | number;
+  as?: HTMLTag;
+  tone?: "dim" | "text" | "acid";
+  class?: string;
+  id?: string;
+}
+
+const { n, as: Tag = "span", tone = "dim", class: cls, id } = Astro.props;
+const num = typeof n === "number" ? String(n).padStart(3, "0") : n;
+---
+
+<Tag class:list={["label", `label-${tone}`, cls]} id={id}>
+  {num && <span class="label-n">{num}</span>}
+  {num && <span class="label-dash" aria-hidden="true">—</span>}
+  <slot />
+</Tag>
+
+<style>
+  .label-dim { color: var(--dim-2); }
+  .label-text { color: var(--text); }
+  .label-acid { color: var(--acid); }
+  .label-n { color: var(--dim-1); }
+  .label-dash {
+    margin-inline: 0.6em;
+    color: var(--dim-3);
+  }
+</style>

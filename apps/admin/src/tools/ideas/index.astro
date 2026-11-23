@@ -1,0 +1,559 @@
+---
+import { env } from "cloudflare:workers";
+import type { Idea } from "./shared";
+
+const { results: ideas } = await env.DB.prepare(
+  `SELECT i.*, (SELECT count(*) FROM idea_notes n WHERE n.idea_id = i.id) AS notes
+   FROM ideas i ORDER BY i.pinned DESC, i.created_at DESC LIMIT 2000`,
+).all<Idea>();
+
+// embedded as json for the client. "<" escaped so body text can never close the script tag.
+const data = JSON.stringify(ideas).replace(/</g, "\\u003c");
+---
+
+<div class="ideas" data-ideas>
+  <form class="capture" data-capture>
+    <label class="sr-only" for="idea-body">new idea</label>
+    <textarea id="idea-body" class="field cap" rows="3" maxlength="5000" placeholder="an idea… #tags work" autofocus
+    ></textarea>
+    <div class="cap-foot">
+      <span class="hint">ENTER SAVES · SHIFT+ENTER NEW LINE</span>
+      <span class="flash" data-flash aria-live="polite"></span>
+      <button type="submit" class="btn btn-primary save">SAVE</button>
+    </div>
+  </form>
+
+  <div class="controls">
+    <label class="sr-only" for="idea-q">search</label>
+    <input id="idea-q" class="field" type="search" placeholder="search  ( / )" autocomplete="off" data-q />
+    <div class="chips" data-statuses role="group" aria-label="status filter">
+      <button type="button" class="chip" data-status="open" aria-pressed="true">open</button>
+      <button type="button" class="chip" data-status="raw" aria-pressed="false">raw</button>
+      <button type="button" class="chip" data-status="thinking" aria-pressed="false">thinking</button>
+      <button type="button" class="chip" data-status="doing" aria-pressed="false">doing</button>
+      <button type="button" class="chip" data-status="dead" aria-pressed="false">dead</button>
+      <button type="button" class="chip" data-status="all" aria-pressed="false">all</button>
+    </div>
+    <div class="chips tags" data-tags role="group" aria-label="tag filter"></div>
+  </div>
+
+  <p class="label count" data-count></p>
+  <ol class="list" data-list></ol>
+  <p class="empty" data-empty hidden>nothing here.</p>
+
+  <script type="application/json" data-json set:html={data} />
+</div>
+
+<style>
+  .ideas {
+    max-width: 46rem;
+  }
+
+  .capture {
+    display: grid;
+    gap: 0.6rem;
+  }
+  .cap {
+    font-size: var(--fs-read);
+    min-height: 6.5rem;
+  }
+  .cap-foot {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .hint {
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-3);
+  }
+  .flash {
+    font-size: var(--fs-small);
+    color: var(--text);
+  }
+  .save {
+    margin-left: auto;
+    height: 2.9rem;
+    min-width: 7rem;
+  }
+
+  .controls {
+    display: grid;
+    gap: 0.75rem;
+    margin-top: 2rem;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .chips :global(.chip) {
+    min-height: 2.75rem;
+    padding-inline: 0.85rem;
+  }
+  .tags:empty {
+    display: none;
+  }
+
+  .count {
+    margin-block: 1.5rem 0.75rem;
+  }
+  .list {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .empty {
+    color: var(--dim-2);
+    padding-block: 1.25rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+
+  /* ---- items (built in the script) */
+  .list :global(.it) {
+    border-top: 1px solid var(--seam-soft);
+  }
+  .list :global(.it:nth-child(even)) {
+    margin-left: var(--shift);
+  }
+  .list :global(.head) {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding-block: 0.95rem 1rem;
+    min-height: 3rem;
+  }
+  .list :global(.body) {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--text);
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .list :global(.it.open .body) {
+    display: none;
+  }
+  .list :global(.meta) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.8rem;
+    margin-top: 0.45rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .list :global(.st-doing) {
+    color: var(--bone);
+  }
+  .list :global(.st-thinking) {
+    color: var(--dim-1);
+  }
+  .list :global(.it.is-dead .body) {
+    color: var(--dim-3);
+  }
+  .list :global(.pin) {
+    color: var(--bone);
+  }
+
+  .list :global(.detail) {
+    display: grid;
+    gap: 0.9rem;
+    padding-bottom: 1.25rem;
+  }
+  .list :global(.edit-body) {
+    font-size: var(--fs-read);
+    min-height: 7rem;
+  }
+  .list :global(.row) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .list :global(.btn) {
+    height: 2.75rem;
+    padding-inline: 0.95rem;
+  }
+  .list :global(.tagbtn) {
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+    min-height: 2.75rem;
+    padding-inline: 0.25rem;
+  }
+  .list :global(.tagbtn:hover) {
+    color: var(--bone);
+  }
+  .list :global(.notes) {
+    display: grid;
+    gap: 0;
+    border-left: 1px solid var(--seam);
+    padding-left: 0.9rem;
+  }
+  .list :global(.note) {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding-block: 0.5rem;
+  }
+  .list :global(.note p) {
+    flex: 1;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .list :global(.note time) {
+    display: block;
+    font-size: var(--fs-micro);
+    color: var(--dim-3);
+    margin-top: 0.2rem;
+  }
+  .list :global(.note-x) {
+    flex: none;
+    width: 2.75rem;
+    height: 2.75rem;
+    color: var(--dim-3);
+    border: 1px solid var(--seam-soft);
+  }
+  .list :global(.note-x:hover) {
+    color: var(--bone);
+  }
+  .list :global(.del) {
+    margin-left: auto;
+    color: var(--dim-2);
+  }
+  .list :global(.err) {
+    font-size: var(--fs-small);
+    color: var(--bone);
+  }
+  .list :global(.err:empty) {
+    display: none;
+  }
+
+  @media (max-width: 560px) {
+    .hint {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  import { extractTags, STATUSES, type Idea } from "./shared";
+
+  type Note = { id: number; body: string; created_at: number };
+
+  const root = document.querySelector<HTMLElement>("[data-ideas]");
+  if (root) {
+    let ideas: Idea[] = JSON.parse(root.querySelector("[data-json]")!.textContent || "[]");
+    const notesCache = new Map<number, Note[]>();
+    const openIds = new Set<number>();
+    let statusFilter = "open";
+    let tagFilter: string | null = null;
+    let query = "";
+
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const list = $("[data-list]");
+    const empty = $("[data-empty]");
+    const count = $("[data-count]");
+    const tagsBox = $("[data-tags]");
+    const cap = $<HTMLTextAreaElement>("#idea-body");
+    const flash = $("[data-flash]");
+
+    // tiny dom helper — text only, never html
+    function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, any> = {}, ...kids: (Node | string | null | false)[]) {
+      const n = document.createElement(tag);
+      for (const [k, v] of Object.entries(props)) {
+        if (k === "class") n.className = v;
+        else if (k === "text") n.textContent = v;
+        else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+        else if (v !== undefined && v !== null && v !== false) n.setAttribute(k, v === true ? "" : String(v));
+      }
+      for (const kid of kids) if (kid) n.append(kid);
+      return n;
+    }
+
+    const ago = (unix: number) => {
+      const s = Date.now() / 1000 - unix;
+      if (s < 60) return "just now";
+      if (s < 3600) return `${Math.round(s / 60)}m ago`;
+      if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+      if (s < 86400 * 60) return `${Math.round(s / 86400)}d ago`;
+      return new Date(unix * 1000).toISOString().slice(0, 10).replace(/-/g, ".");
+    };
+    const tagsOf = (i: Idea) => (i.tags ? i.tags.split(",") : []);
+
+    async function api(path: string, payload?: Record<string, unknown>) {
+      const res = await fetch(`/api/ideas/${path}`, payload
+        ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }
+        : undefined);
+      const out = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !out.ok) throw new Error(out.error ?? `failed (${res.status})`);
+      return out;
+    }
+
+    const upsert = (idea: Idea) => {
+      const i = ideas.findIndex((x) => x.id === idea.id);
+      if (i === -1) ideas.unshift(idea);
+      else ideas[i] = idea;
+    };
+    const sorted = () => [...ideas].sort((a, b) => b.pinned - a.pinned || b.created_at - a.created_at || b.id - a.id);
+
+    const visible = (i: Idea) => {
+      if (statusFilter === "open" && i.status === "dead") return false;
+      if (statusFilter !== "open" && statusFilter !== "all" && i.status !== statusFilter) return false;
+      if (tagFilter && !tagsOf(i).includes(tagFilter)) return false;
+      if (query) {
+        const hay = `${i.body} ${i.tags}`.toLowerCase();
+        if (!query.split(/\s+/).every((w) => hay.includes(w))) return false;
+      }
+      return true;
+    };
+
+    // ---------------- render
+    function renderTags() {
+      const counts = new Map<string, number>();
+      for (const i of ideas) if (i.status !== "dead" || statusFilter === "dead" || statusFilter === "all") for (const t of tagsOf(i)) counts.set(t, (counts.get(t) ?? 0) + 1);
+      tagsBox.replaceChildren(
+        ...[...counts.entries()]
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .map(([t, n]) =>
+            el("button", { type: "button", class: "chip", "aria-pressed": String(tagFilter === t), onclick: () => setTag(tagFilter === t ? null : t), text: `#${t} ${n}` }),
+          ),
+      );
+    }
+
+    function renderItem(i: Idea) {
+      const open = openIds.has(i.id);
+      const li = el("li", { class: `it is-${i.status}${open ? " open" : ""}`, "data-id": i.id });
+      const meta = el(
+        "span",
+        { class: "meta" },
+        i.pinned ? el("span", { class: "pin", text: "[pinned]" }) : null,
+        el("span", { class: `st-${i.status}`, text: i.status }),
+        ...tagsOf(i).map((t) => el("span", { text: `#${t}` })),
+        el("span", { text: ago(i.created_at) }),
+        i.notes ? el("span", { text: `${i.notes} ${i.notes === 1 ? "note" : "notes"}` }) : null,
+      );
+      const head = el("button", { type: "button", class: "head", "aria-expanded": String(open), onclick: () => toggle(i.id) }, el("span", { class: "body", text: i.body }), meta);
+      li.append(head);
+      if (open) li.append(renderDetail(i));
+      return li;
+    }
+
+    function renderDetail(i: Idea) {
+      const err = el("p", { class: "err", "aria-live": "polite" });
+      const fail = (e: unknown) => (err.textContent = e instanceof Error ? e.message : "failed");
+      const edit = el("textarea", { class: "field edit-body", maxlength: 5000 }) as HTMLTextAreaElement;
+      edit.value = i.body;
+
+      const save = async () => {
+        if (edit.value.trim() === i.body) return;
+        try {
+          upsert((await api("update", { id: i.id, body: edit.value })).idea);
+          render();
+        } catch (e) {
+          fail(e);
+        }
+      };
+      edit.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          save();
+        }
+      });
+
+      const statusRow = el(
+        "div",
+        { class: "row", role: "group", "aria-label": "status" },
+        ...STATUSES.map((s) =>
+          el("button", {
+            type: "button",
+            class: "chip",
+            "aria-pressed": String(i.status === s),
+            text: s,
+            onclick: async () => {
+              try {
+                upsert((await api("update", { id: i.id, status: s })).idea);
+                render();
+              } catch (e) {
+                fail(e);
+              }
+            },
+          }),
+        ),
+      );
+
+      const notesBox = el("div", { class: "notes" });
+      const fillNotes = (notes: Note[]) =>
+        notesBox.replaceChildren(
+          ...notes.map((n) =>
+            el(
+              "div",
+              { class: "note" },
+              el("p", {}, n.body, el("time", { text: ago(n.created_at) })),
+              el("button", {
+                type: "button",
+                class: "note-x",
+                "aria-label": "delete note",
+                text: "×",
+                onclick: async () => {
+                  if (!confirm("delete this note?")) return;
+                  try {
+                    await api("note-delete", { id: n.id });
+                    const next = (notesCache.get(i.id) ?? []).filter((x) => x.id !== n.id);
+                    notesCache.set(i.id, next);
+                    upsert({ ...i, notes: next.length });
+                    render();
+                  } catch (e) {
+                    fail(e);
+                  }
+                },
+              }),
+            ),
+          ),
+        );
+      if (notesCache.has(i.id)) fillNotes(notesCache.get(i.id)!);
+      else if (i.notes)
+        api(`notes/${i.id}`).then((o) => (notesCache.set(i.id, o.notes), fillNotes(o.notes))).catch(fail);
+
+      const noteIn = el("textarea", { class: "field", rows: 2, maxlength: 5000, placeholder: "add a note… (enter saves)" }) as HTMLTextAreaElement;
+      const addNote = async () => {
+        const text = noteIn.value.trim();
+        if (!text) return;
+        try {
+          const o = await api("note", { id: i.id, body: text });
+          notesCache.set(i.id, [...(notesCache.get(i.id) ?? []), o.note]);
+          upsert(o.idea);
+          render();
+          (list.querySelector(`[data-id="${i.id}"] .detail textarea:last-of-type`) as HTMLTextAreaElement | null)?.focus();
+        } catch (e) {
+          fail(e);
+        }
+      };
+      noteIn.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          addNote();
+        }
+      });
+
+      return el(
+        "div",
+        { class: "detail" },
+        edit,
+        el("div", { class: "row" }, el("button", { type: "button", class: "btn", text: "SAVE", onclick: save }), ...tagsOf(i).map((t) => el("button", { type: "button", class: "tagbtn", text: `#${t}`, onclick: () => setTag(t) }))),
+        statusRow,
+        notesBox,
+        noteIn,
+        el(
+          "div",
+          { class: "row" },
+          el("button", { type: "button", class: "btn", text: "ADD NOTE", onclick: addNote }),
+          el("button", {
+            type: "button",
+            class: "btn",
+            text: i.pinned ? "UNPIN" : "PIN",
+            onclick: async () => {
+              try {
+                upsert((await api("update", { id: i.id, pinned: !i.pinned })).idea);
+                render();
+              } catch (e) {
+                fail(e);
+              }
+            },
+          }),
+          el("button", {
+            type: "button",
+            class: "btn del",
+            text: "DELETE",
+            onclick: async () => {
+              if (!confirm("delete this idea and its notes?")) return;
+              try {
+                await api("delete", { id: i.id });
+                ideas = ideas.filter((x) => x.id !== i.id);
+                openIds.delete(i.id);
+                render();
+              } catch (e) {
+                fail(e);
+              }
+            },
+          }),
+        ),
+        err,
+      );
+    }
+
+    function render() {
+      const shown = sorted().filter(visible);
+      list.replaceChildren(...shown.map(renderItem));
+      empty.hidden = shown.length > 0;
+      count.textContent = `${shown.length} OF ${ideas.length}${tagFilter ? ` · #${tagFilter.toUpperCase()}` : ""}`;
+      renderTags();
+    }
+
+    const toggle = (id: number) => {
+      openIds.has(id) ? openIds.delete(id) : openIds.add(id);
+      render();
+    };
+    const setTag = (t: string | null) => {
+      tagFilter = t;
+      render();
+      window.scrollTo({ top: root.querySelector<HTMLElement>(".controls")!.offsetTop - 16, behavior: "smooth" });
+    };
+
+    // ---------------- capture
+    const capture = $<HTMLFormElement>("[data-capture]");
+    let saving = false;
+    const doSave = async () => {
+      const text = cap.value.trim();
+      if (!text || saving) return;
+      saving = true;
+      flash.textContent = "…";
+      try {
+        const { idea } = await api("create", { body: text });
+        upsert(idea);
+        cap.value = "";
+        flash.textContent = extractTags(text).length ? `saved · ${extractTags(text).map((t) => "#" + t).join(" ")}` : "saved.";
+        render();
+      } catch (e) {
+        flash.textContent = e instanceof Error ? e.message : "failed";
+      } finally {
+        saving = false;
+        cap.focus();
+      }
+    };
+    capture.addEventListener("submit", (e) => {
+      e.preventDefault();
+      doSave();
+    });
+    cap.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        doSave();
+      }
+    });
+    cap.addEventListener("input", () => (flash.textContent = ""));
+
+    // ---------------- filters
+    $("[data-statuses]").addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-status]");
+      if (!b) return;
+      statusFilter = b.dataset.status!;
+      root.querySelectorAll("[data-status]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      render();
+    });
+    const q = $<HTMLInputElement>("[data-q]");
+    q.addEventListener("input", () => {
+      query = q.value.trim().toLowerCase();
+      render();
+    });
+    document.addEventListener("keydown", (e) => {
+      const t = e.target as HTMLElement;
+      if (e.key === "/" && !t.matches("input, textarea")) {
+        e.preventDefault();
+        q.focus();
+      }
+    });
+
+    render();
+    // ios doesn't honor autofocus on load; at least put the caret there
+    if (document.activeElement !== cap && matchMedia("(pointer: fine)").matches) cap.focus();
+  }
+</script>

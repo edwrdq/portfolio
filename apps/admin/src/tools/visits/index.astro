@@ -1,0 +1,326 @@
+---
+// visitor map. rendered server-side: d3-geo projects land + dots into plain svg,
+// so the browser gets no d3 bundle. ranges are links.
+import { env } from "cloudflare:workers";
+import { geoEqualEarth, geoGraticule10, geoPath } from "d3-geo";
+import { feature } from "topojson-client";
+import land110 from "world-atlas/land-110m.json";
+
+const RANGES = { today: 0, "7d": 6, "30d": 29, all: null } as const;
+type Range = keyof typeof RANGES;
+const q = Astro.url.searchParams.get("range");
+const range: Range = q && q in RANGES ? (q as Range) : "7d";
+
+const since = (() => {
+  const back = RANGES[range];
+  if (back === null) return "0000-00-00";
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - back);
+  return d.toISOString().slice(0, 10);
+})();
+
+type Pt = { city: string; country: string; lat: number; lon: number; n: number };
+type Kv = { k: string; n: number };
+const [pts, countries, pages, tot] = await Promise.all([
+  env.DB.prepare(
+    `SELECT city, country, round(avg(lat), 1) AS lat, round(avg(lon), 1) AS lon, sum(count) AS n
+     FROM visits_daily WHERE date >= ? AND lat IS NOT NULL AND lon IS NOT NULL
+     GROUP BY country, city ORDER BY n DESC LIMIT 1500`,
+  ).bind(since).all<Pt>(),
+  env.DB.prepare(`SELECT country AS k, sum(count) AS n FROM visits_daily WHERE date >= ? GROUP BY country ORDER BY n DESC LIMIT 12`).bind(since).all<Kv>(),
+  env.DB.prepare(`SELECT path AS k, sum(count) AS n FROM visits_daily WHERE date >= ? GROUP BY path ORDER BY n DESC LIMIT 12`).bind(since).all<Kv>(),
+  env.DB.prepare(`SELECT coalesce(sum(count), 0) AS n, count(DISTINCT country) AS c FROM visits_daily WHERE date >= ?`).bind(since).first<{ n: number; c: number }>(),
+]);
+const points = pts.results;
+const total = tot?.n ?? 0;
+
+// ---- map
+const W = 960;
+const landGeo = feature(land110 as any, (land110 as any).objects.land) as any;
+const projection = geoEqualEarth().fitWidth(W, { type: "Sphere" } as any);
+const path = geoPath(projection);
+const [[, y0], [, y1]] = path.bounds({ type: "Sphere" } as any);
+const H = Math.ceil(y1 - y0);
+const landD = path(landGeo) ?? "";
+const gratD = path(geoGraticule10()) ?? "";
+const sphereD = path({ type: "Sphere" } as any) ?? "";
+
+const max = Math.max(1, ...points.map((p) => p.n));
+const regions = new Intl.DisplayNames(["en"], { type: "region" });
+const countryName = (c: string) => {
+  if (!c) return "unknown";
+  try {
+    return (regions.of(c) ?? c).toLowerCase();
+  } catch {
+    return c.toLowerCase();
+  }
+};
+const dots = points
+  .map((p) => {
+    const xy = projection([p.lon, p.lat]);
+    if (!xy) return null;
+    const s = 3 + Math.sqrt(p.n / max) * 13; // square side, map units
+    return { x: xy[0] - s / 2, y: xy[1] - s / 2, s, label: `${(p.city || "somewhere").toLowerCase()}, ${countryName(p.country)}`, n: p.n };
+  })
+  .filter((d): d is NonNullable<typeof d> => !!d)
+  .sort((a, b) => b.s - a.s); // big first so small ones stay hoverable on top
+
+const cities = points.slice(0, 12).map((p) => ({ k: `${(p.city || "somewhere").toLowerCase()}`, sub: p.country, n: p.n }));
+---
+
+<div class="visits" data-visits>
+  <div class="top">
+    <p class="total">
+      <span class="display big">{total.toLocaleString("en-US")}</span>
+      <span class="label">VIEWS · {tot?.c ?? 0} COUNTRIES</span>
+    </p>
+    <nav class="ranges" aria-label="range">
+      {
+        (Object.keys(RANGES) as Range[]).map((r) => (
+          <a class="chip" href={`?range=${r}`} aria-pressed={String(r === range)} aria-current={r === range ? "page" : undefined}>
+            {r}
+          </a>
+        ))
+      }
+    </nav>
+  </div>
+
+  <figure class="map" data-map>
+    <svg viewBox={`0 ${y0} ${W} ${H}`} role="img" aria-label={`visitor map — ${points.length} places`}>
+      <path d={sphereD} class="sphere" />
+      <path d={gratD} class="grat" />
+      <path d={landD} class="land" />
+      {
+        dots.map((d) => (
+          <rect x={d.x.toFixed(1)} y={d.y.toFixed(1)} width={d.s.toFixed(1)} height={d.s.toFixed(1)} class="dot" data-tip={`${d.label} — ${d.n}`} tabindex="0">
+            <title>{`${d.label} — ${d.n}`}</title>
+          </rect>
+        ))
+      }
+    </svg>
+    <p class="tip" data-tip-box hidden></p>
+    {points.length === 0 && <p class="none">no visits in this range yet.</p>}
+  </figure>
+
+  <div class="lists">
+    {
+      [
+        { title: "TOP CITIES", rows: cities.map((c) => ({ k: c.k, sub: c.sub, n: c.n })) },
+        { title: "TOP COUNTRIES", rows: countries.results.map((c) => ({ k: countryName(c.k), sub: c.k, n: c.n })) },
+        { title: "TOP PAGES", rows: pages.results.map((p) => ({ k: p.k, sub: "", n: p.n })) },
+      ].map((l) => (
+        <section class="list">
+          <p class="label">{l.title}</p>
+          {l.rows.length === 0 ? (
+            <p class="empty">—</p>
+          ) : (
+            <ol>
+              {l.rows.map((r) => (
+                <li>
+                  <span class="k">{r.k}</span>
+                  {r.sub && <span class="sub">{r.sub}</span>}
+                  <span class="n">{r.n.toLocaleString("en-US")}</span>
+                  <span class="bar" style={`--w:${Math.max(2, (r.n / Math.max(1, l.rows[0].n)) * 100)}%`} />
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      ))
+    }
+  </div>
+
+  <p class="foot hint">daily aggregates by city (rounded to ~11km) and page. no ips, no cookies, no per-visitor rows. bots, assets, /api, /x, /d don't count.</p>
+</div>
+
+<style>
+  .top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .total {
+    display: grid;
+    gap: 0.6rem;
+  }
+  .big {
+    font-size: clamp(3rem, 10vw, 5.5rem);
+    font-weight: 700;
+    line-height: 0.85;
+  }
+  .ranges {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .ranges .chip {
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .map {
+    position: relative;
+    margin-top: 1.75rem;
+    border-top: 1px solid var(--seam-soft);
+    border-bottom: 1px solid var(--seam-soft);
+    padding-block: 1rem;
+  }
+  .map svg {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .sphere {
+    fill: none;
+    stroke: var(--seam-soft);
+    stroke-width: 1;
+  }
+  .grat {
+    fill: none;
+    stroke: var(--seam-soft);
+    stroke-width: 0.5;
+  }
+  .land {
+    fill: var(--seam);
+    stroke: none;
+  }
+  .dot {
+    fill: var(--acid);
+    /* a fixed-pixel outline keeps single-visit dots visible when the map is phone-sized */
+    stroke: var(--acid);
+    stroke-width: 2px;
+    stroke-linejoin: miter;
+    vector-effect: non-scaling-stroke;
+    shape-rendering: crispEdges;
+    cursor: pointer;
+    outline: none;
+  }
+  .dot:hover,
+  .dot:focus,
+  .dot.on {
+    fill: var(--bone);
+    stroke: var(--bone);
+  }
+  .tip {
+    position: absolute;
+    pointer-events: none;
+    padding: 0.35rem 0.6rem;
+    background: var(--bg);
+    border: 1px solid var(--seam);
+    font-size: var(--fs-small);
+    color: var(--text);
+    white-space: nowrap;
+    transform: translate(-50%, calc(-100% - 10px));
+  }
+  .none {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: var(--dim-2);
+  }
+
+  .lists {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 2rem 2.5rem;
+    margin-top: 2rem;
+  }
+  .list .label {
+    margin-bottom: 0.75rem;
+  }
+  .list ol {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .list li {
+    position: relative;
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding-block: 0.45rem;
+    border-top: 1px solid var(--seam-soft);
+    font-size: var(--fs-small);
+  }
+  .k {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+  }
+  .sub {
+    color: var(--dim-3);
+  }
+  .n {
+    color: var(--dim-1);
+    font-variant-numeric: tabular-nums;
+  }
+  /* hairline share bar under each row */
+  .bar {
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    height: 1px;
+    width: var(--w);
+    background: var(--dim-3);
+  }
+  .empty {
+    color: var(--dim-3);
+    padding-block: 0.45rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .foot {
+    margin-top: 2rem;
+    font-size: var(--fs-micro);
+    color: var(--dim-3);
+    max-width: 60ch;
+    line-height: 1.6;
+  }
+</style>
+
+<script>
+  // tooltip: hover on desktop, tap on touch. text only.
+  const map = document.querySelector<HTMLElement>("[data-map]");
+  if (map) {
+    const tip = map.querySelector<HTMLElement>("[data-tip-box]")!;
+    let pinned: Element | null = null;
+    const show = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      const m = map.getBoundingClientRect();
+      tip.textContent = (el as HTMLElement).dataset.tip ?? "";
+      tip.style.left = `${Math.min(Math.max(r.left + r.width / 2 - m.left, 70), m.width - 70)}px`;
+      tip.style.top = `${r.top - m.top}px`;
+      tip.hidden = false;
+    };
+    const hide = () => {
+      if (!pinned) tip.hidden = true;
+    };
+    map.addEventListener("pointerover", (e) => {
+      const el = (e.target as Element).closest("[data-tip]");
+      if (el && e.pointerType === "mouse") show(el);
+    });
+    map.addEventListener("pointerout", (e) => {
+      if ((e.target as Element).closest("[data-tip]") && e.pointerType === "mouse") hide();
+    });
+    map.addEventListener("focusin", (e) => {
+      const el = (e.target as Element).closest("[data-tip]");
+      if (el) show(el);
+    });
+    map.addEventListener("focusout", hide);
+    map.addEventListener("click", (e) => {
+      const el = (e.target as Element).closest("[data-tip]");
+      pinned?.classList.remove("on");
+      if (el && el !== pinned) {
+        pinned = el;
+        el.classList.add("on");
+        show(el);
+      } else {
+        pinned = null;
+        tip.hidden = true;
+      }
+    });
+  }
+</script>

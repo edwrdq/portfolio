@@ -1,0 +1,63 @@
+# homepage index. reorder by moving entries — numbers follow position.
+- id: indicatoriq
+  title: indicatoriq
+  desc: fintech / algorithms
+  intro: "fintech + algorithms. the company."
+  icon: chart
+  href: /indicatoriq
+
+- id: hlvm
+  title: hlvm
+  desc: compiler / asm
+  intro: "a compiler, all the way down to asm."
+  icon: chip
+  href: /hlvm
+
+- id: music
+  title: music
+  desc: beats / album
+  intro: "what i listen to, and what i make."
+  groups:
+    - id: taste
+      title: taste
+      intro: "what's on repeat."
+    - id: making
+      title: making
+      intro: "beats. an album on the way."
+  icon: note
+  href: /music
+
+- id: clothing
+  title: clothing
+  desc: pieces / design
+  intro: "pieces i design."
+  icon: shirt
+  href: /clothing
+
+- id: garage
+  title: garage
+  desc: civic / aero
+  intro: "civic. aero. not started yet."
+  icon: car
+  href: /garage
+  status: planned
+
+- id: work
+  title: work + experience
+  desc: shop
+  intro: "where i've worked."
+  icon: case
+  href: /work
+
+- id: misc
+  title: misc
+  desc: small builds
+  intro: "small builds that don't need their own page."
+  icon: box
+  href: /misc
+
+- id: blog
+  title: blog
+  desc: notes
+  icon: pen
+  href: /blog

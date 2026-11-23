@@ -1,0 +1,61 @@
+---
+import Base from "../layouts/Base.astro";
+import Label from "@edwrdq/ui/Label.astro";
+import Row from "@edwrdq/ui/Row.astro";
+import { getIndex } from "../lib/content";
+
+const index = await getIndex();
+---
+
+<Base title="404" description="nothing here." noindex>
+  <section class="nf gutter">
+    <Label>404 — NOT FOUND</Label>
+    <h1 class="display big">404<span class="acid">.</span></h1>
+    <p class="msg">
+      nothing here. maybe it moved, maybe it never existed<span class="cursor">_</span>
+    </p>
+  </section>
+
+  <nav class="gutter where" aria-label="index">
+    <Label>TRY ONE OF THESE</Label>
+    <ol class="rows list">
+      {
+        index.map((e, i) => (
+          <Row n={i + 1} title={e.data.title} desc={e.data.desc} icon={e.data.icon as any} href={e.data.href} status={e.data.status} />
+        ))
+      }
+    </ol>
+  </nav>
+</Base>
+
+<style>
+  .nf {
+    padding-top: clamp(3rem, 10vw, 7rem);
+  }
+  .big {
+    margin-top: 2rem;
+    font-size: clamp(7rem, 32vw, 22rem);
+    font-weight: 800;
+    letter-spacing: -0.065em;
+    line-height: 0.76;
+  }
+  .acid {
+    color: var(--acid);
+  }
+  .msg {
+    margin-top: clamp(2rem, 5vw, 3rem);
+    margin-left: var(--offset);
+    max-width: 36ch;
+    color: var(--dim-1);
+  }
+  .where {
+    margin-top: var(--section);
+    /* compact rows */
+    --row-title: clamp(1.15rem, 3vw, 1.6rem);
+    --row-pad: 0.75rem;
+  }
+  .list {
+    margin-top: 1.5rem;
+    border-bottom: 1px solid var(--seam-soft);
+  }
+</style>

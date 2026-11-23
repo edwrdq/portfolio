@@ -1,0 +1,103 @@
+---
+// server island: reads the KV cache only. outside APIs are refreshed in the background.
+import { env } from "cloudflare:workers";
+import { ago, getStats } from "@edwrdq/stats";
+import Label from "@edwrdq/ui/Label.astro";
+
+const { data } = await getStats(env, Astro.locals.cfContext).catch(() => ({ data: null }));
+const gh = data?.github ?? null;
+
+// heatmap: last 26 weeks. strip: last 14 days of pushes.
+const weeks = gh?.calendar?.weeks.slice(-26) ?? null;
+const pushLevel = (n: number) => (n === 0 ? 0 : n === 1 ? 2 : n === 2 ? 3 : 4);
+const pushTotal = gh?.pushes14d.reduce((a, b) => a + b, 0) ?? 0;
+---
+
+<div class="live">
+  <Label>LIVE — GITHUB</Label>
+  {
+    !gh ? (
+      <p class="line dim">warming up<span class="cursor">_</span></p>
+    ) : (
+      <>
+        {gh.lastPush ? (
+          <p class="line">
+            pushed to <a href={gh.lastPush.url} target="_blank" rel="noopener">{gh.lastPush.repo}</a>
+            <span class="dim"> · {ago(gh.lastPush.at)}</span>
+          </p>
+        ) : (
+          <p class="line dim">quiet lately.</p>
+        )}
+        {gh.lastPush?.message && <p class="msg">"{gh.lastPush.message}"</p>}
+
+        {weeks ? (
+          <figure class="graph">
+            <svg
+              viewBox={`0 0 ${weeks.length * 5} ${7 * 5}`}
+              shape-rendering="crispEdges"
+              role="img"
+              aria-label={`${gh.calendar!.total} contributions in the last year`}
+            >
+              {weeks.map((w, x) => w.map((lvl, y) => <rect x={x * 5} y={y * 5} width="4" height="4" class={`l${lvl}`} />))}
+            </svg>
+            <figcaption class="cap">{gh.calendar!.total} contributions / year</figcaption>
+          </figure>
+        ) : (
+          <figure class="graph strip">
+            <svg viewBox="0 0 70 4" shape-rendering="crispEdges" role="img" aria-label={`${pushTotal} pushes in 14 days`}>
+              {gh.pushes14d.map((n, x) => <rect x={x * 5} y="0" width="4" height="4" class={`l${pushLevel(n)}`} />)}
+            </svg>
+            <figcaption class="cap">{pushTotal} {pushTotal === 1 ? "push" : "pushes"} / 14d</figcaption>
+          </figure>
+        )}
+      </>
+    )
+  }
+</div>
+
+<style>
+  .live {
+    display: grid;
+    gap: 0.6rem;
+    font-size: var(--fs-small);
+  }
+  .line {
+    margin-top: 0.4rem;
+    color: var(--text);
+  }
+  .line a {
+    color: var(--bone);
+    border-bottom: 1px solid var(--dim-4);
+  }
+  .line a:hover {
+    border-color: var(--bone);
+  }
+  .dim {
+    color: var(--dim-2);
+  }
+  .msg {
+    color: var(--dim-1);
+    overflow-wrap: anywhere;
+  }
+  .graph {
+    margin-top: 0.5rem;
+    display: grid;
+    gap: 0.5rem;
+  }
+  .graph svg {
+    width: 100%;
+    max-width: 20rem;
+    height: auto;
+  }
+  .strip svg {
+    max-width: 14rem;
+  }
+  .cap {
+    color: var(--dim-2);
+  }
+  .l0 { fill: var(--seam); }
+  .l1 { fill: var(--dim-4); }
+  .l2 { fill: var(--dim-3); }
+  .l3 { fill: var(--dim-1); }
+  .l4 { fill: var(--bone); }
+</style>

@@ -1,0 +1,313 @@
+---
+import { env } from "cloudflare:workers";
+import { ago, when } from "../../lib/http";
+
+type Item = {
+  kind: "comment" | "message";
+  id: number;
+  slug: string | null;
+  body: string;
+  name: string | null;
+  created_at: number;
+};
+
+// oldest first — it's a queue
+const { results: items } = await env.DB.prepare(
+  `SELECT 'comment' AS kind, id, slug, body, name, created_at FROM comments WHERE status = 'pending'
+   UNION ALL
+   SELECT 'message' AS kind, id, NULL AS slug, body, name, created_at FROM messages WHERE status = 'pending'
+   ORDER BY created_at ASC
+   LIMIT 200`,
+).all<Item>();
+---
+
+<div class="queue" data-queue>
+  <p class="keys label">
+    <span><kbd>J</kbd>/<kbd>K</kbd> MOVE</span>
+    <span><kbd>A</kbd> APPROVE</span>
+    <span><kbd>R</kbd> REJECT</span>
+    <span><kbd>E</kbd> REPLY</span>
+    <span class="count" data-count>{items.length} PENDING</span>
+  </p>
+
+  <ol class="items">
+    {
+      items.map((it, i) => (
+        <li
+          class="item"
+          data-item
+          data-kind={it.kind}
+          data-id={it.id}
+          aria-current={i === 0 ? "true" : undefined}
+          tabindex="-1"
+        >
+          <div class="meta">
+            <span class="n">{String(i + 1).padStart(3, "0")}</span>
+            <span class="kind">{it.kind === "comment" ? `comment · /blog/${it.slug}` : "guestbook"}</span>
+            <span class="who">{it.name ?? "anon"}</span>
+            <time title={when(it.created_at)}>{ago(it.created_at)}</time>
+          </div>
+          <p class="body">{it.body}</p>
+
+          <div class="actions">
+            <button type="button" class="btn btn-primary" data-act="approve">APPROVE</button>
+            <button type="button" class="btn" data-act="reject">REJECT</button>
+            {it.kind === "comment" && (
+              <button type="button" class="btn" data-act="open-reply">REPLY</button>
+            )}
+            <button type="button" class="btn del" data-act="delete">DELETE</button>
+          </div>
+
+          {it.kind === "comment" && (
+            <form class="reply" data-reply hidden>
+              <textarea class="field" name="reply" rows="3" maxlength="2000" placeholder="reply as eddy (publishes the comment)" />
+              <div class="reply-foot">
+                <button type="submit" class="btn btn-primary">REPLY + APPROVE</button>
+                <span class="hint">⌘/CTRL + ENTER · ESC TO CLOSE</span>
+              </div>
+            </form>
+          )}
+          <p class="err" data-err aria-live="polite" />
+        </li>
+      ))
+    }
+  </ol>
+
+  <p class="empty" data-empty hidden={items.length > 0}>queue's empty. nice<span class="cursor">_</span></p>
+</div>
+
+<style>
+  .keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  kbd {
+    font: inherit;
+    color: var(--text);
+  }
+  .count {
+    margin-left: auto;
+    color: var(--dim-1);
+  }
+
+  .items {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .items:empty {
+    display: none;
+  }
+  .item {
+    padding-block: 1rem 1.15rem;
+    border-top: 1px solid var(--seam-soft);
+    outline: none;
+  }
+  .item:nth-child(even) {
+    margin-left: var(--shift);
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .n {
+    font-variant-numeric: tabular-nums;
+  }
+  .item[aria-current="true"] .n {
+    color: var(--acid);
+  }
+  .who {
+    color: var(--dim-1);
+  }
+  .body {
+    margin-top: 0.5rem;
+    max-width: 75ch;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .actions {
+    margin-top: 0.85rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .actions .btn {
+    height: 2.1rem;
+    padding-inline: 0.9rem;
+  }
+  /* only the current item shows its primary button in acid */
+  .item:not([aria-current="true"]) .btn-primary {
+    background: none;
+    border-color: var(--seam);
+    color: var(--text);
+  }
+  .del {
+    margin-left: auto;
+    color: var(--dim-2);
+  }
+  .del:hover {
+    color: var(--bone);
+  }
+  .reply {
+    margin-top: 0.85rem;
+    display: grid;
+    gap: 0.5rem;
+    max-width: 75ch;
+  }
+  .reply[hidden] {
+    display: none;
+  }
+  .reply-foot {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .hint {
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-3);
+  }
+  .err {
+    margin-top: 0.5rem;
+    font-size: var(--fs-small);
+    color: var(--bone);
+  }
+  .err:empty {
+    display: none;
+  }
+  .item.busy {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  .empty {
+    color: var(--dim-2);
+    padding-block: 1.5rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  @media (max-width: 560px) {
+    .keys span:not(.count) {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  const root = document.querySelector<HTMLElement>("[data-queue]");
+  if (root) {
+    const list = () => [...root.querySelectorAll<HTMLLIElement>("[data-item]")];
+    const count = root.querySelector<HTMLElement>("[data-count]")!;
+    const empty = root.querySelector<HTMLElement>("[data-empty]")!;
+
+    const current = () => list().find((li) => li.getAttribute("aria-current") === "true") ?? list()[0];
+
+    const select = (li: HTMLLIElement | undefined, scroll = true) => {
+      for (const x of list()) x.removeAttribute("aria-current");
+      if (!li) return;
+      li.setAttribute("aria-current", "true");
+      if (scroll) li.scrollIntoView({ block: "nearest" });
+    };
+
+    const renumber = () => {
+      const items = list();
+      items.forEach((li, i) => (li.querySelector(".n")!.textContent = String(i + 1).padStart(3, "0")));
+      count.textContent = `${items.length} PENDING`;
+      empty.hidden = items.length > 0;
+    };
+
+    async function act(li: HTMLLIElement, action: string, reply?: string) {
+      if (action === "delete" && !confirm("delete this for good?")) return;
+      const err = li.querySelector<HTMLElement>("[data-err]")!;
+      err.textContent = "";
+      li.classList.add("busy");
+      try {
+        const res = await fetch("/api/queue/act", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ kind: li.dataset.kind, id: Number(li.dataset.id), action, reply }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!res.ok || !data.ok) throw new Error(data.error ?? `failed (${res.status})`);
+        const items = list();
+        const next = items[items.indexOf(li) + 1] ?? items[items.indexOf(li) - 1];
+        li.remove();
+        select(next);
+        renumber();
+      } catch (e) {
+        err.textContent = e instanceof Error ? e.message : "failed";
+        li.classList.remove("busy");
+      }
+    }
+
+    const openReply = (li: HTMLLIElement) => {
+      const form = li.querySelector<HTMLFormElement>("[data-reply]");
+      if (!form) return;
+      form.hidden = false;
+      form.querySelector("textarea")!.focus();
+    };
+
+    root.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-act]");
+      const li = (e.target as HTMLElement).closest<HTMLLIElement>("[data-item]");
+      if (!li) return;
+      select(li, false);
+      if (!btn) return;
+      const a = btn.dataset.act!;
+      if (a === "open-reply") openReply(li);
+      else act(li, a);
+    });
+
+    root.addEventListener("submit", (e) => {
+      const form = (e.target as HTMLElement).closest<HTMLFormElement>("[data-reply]");
+      if (!form) return;
+      e.preventDefault();
+      act(form.closest("[data-item]")!, "reply", form.querySelector("textarea")!.value);
+    });
+
+    document.addEventListener("keydown", (e) => {
+      const t = e.target as HTMLElement;
+      const typing = t.matches("textarea, input, select, [contenteditable]");
+
+      if (typing) {
+        const form = t.closest<HTMLFormElement>("[data-reply]");
+        if (form && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          form.requestSubmit();
+        } else if (form && e.key === "Escape") {
+          form.hidden = true;
+          (form.closest("[data-item]") as HTMLElement).focus();
+        }
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const items = list();
+      const cur = current();
+      const i = cur ? items.indexOf(cur) : -1;
+      switch (e.key) {
+        case "j":
+          select(items[Math.min(i + 1, items.length - 1)]);
+          break;
+        case "k":
+          select(items[Math.max(i - 1, 0)]);
+          break;
+        case "a":
+          if (cur) act(cur, "approve");
+          break;
+        case "r":
+          if (cur) act(cur, "reject");
+          break;
+        case "e":
+          if (cur) {
+            e.preventDefault();
+            openReply(cur);
+          }
+          break;
+        default:
+          return;
+      }
+    });
+  }
+</script>

@@ -1,0 +1,245 @@
+/* reset + element defaults. square everything. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  border-radius: 0;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  color-scheme: dark;
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--bone);
+  color: var(--bg);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 1px solid var(--acid);
+  outline-offset: 3px;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* `hidden` always wins — component display rules (.field, grids…) must not unhide things */
+[hidden] {
+  display: none !important;
+}
+
+ol,
+ul {
+  list-style: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  appearance: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* ---------- type primitives ---------- */
+
+.display {
+  font-family: var(--font-display);
+  color: var(--bone);
+  font-weight: 700;
+  letter-spacing: var(--track-display);
+  line-height: 0.86;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  line-height: 1;
+  color: var(--dim-2);
+}
+
+.dim { color: var(--dim-1); }
+.dimmer { color: var(--dim-2); }
+
+.offset { margin-left: var(--offset); }
+
+.gutter { padding-inline: var(--gutter); }
+
+/* blinking acid cursor */
+.cursor {
+  color: var(--acid);
+  animation: blink 1.06s steps(1, end) infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* ---------- form primitives ---------- */
+
+.field {
+  display: block;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--seam);
+  color: var(--text);
+  padding: 0.75rem 0.875rem;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  transition: border-color var(--fast) var(--ease);
+}
+
+.field::placeholder { color: var(--dim-3); }
+.field:hover { border-color: var(--dim-4); }
+.field:focus {
+  outline: none;
+  border-color: var(--acid);
+}
+
+textarea.field {
+  resize: vertical;
+  min-height: 7.5rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75em;
+  height: 2.75rem;
+  padding-inline: 1.25rem;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  border: 1px solid var(--seam);
+  color: var(--text);
+  transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+
+.btn:hover { border-color: var(--dim-2); }
+
+.btn-primary {
+  background: var(--acid);
+  border-color: var(--acid);
+  color: var(--on-acid);
+}
+
+.btn-primary:hover {
+  background: var(--bone);
+  border-color: var(--bone);
+}
+
+.btn:disabled {
+  background: var(--surface);
+  border-color: var(--seam);
+  color: var(--dim-3);
+  cursor: not-allowed;
+}
+
+.chip {
+  display: inline-block;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--seam);
+  color: var(--dim-1);
+  font-size: var(--fs-small);
+  line-height: 1.2;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+
+.chip:hover,
+.chip[aria-pressed="true"] {
+  color: var(--bone);
+  border-color: var(--dim-2);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .cursor { animation: none; }
+}
+
+/* ---------- page transitions ----------
+   native cross-document view transitions: zero js. browsers without
+   support just navigate normally. elements with a view-transition-name
+   (like the top bar) hold still while the page swaps underneath. */
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root) {
+  animation: vt-out 90ms var(--ease) both;
+}
+::view-transition-new(root) {
+  animation: vt-in 180ms var(--ease) both;
+}
+
+@keyframes vt-out {
+  to { opacity: 0; }
+}
+@keyframes vt-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

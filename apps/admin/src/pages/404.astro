@@ -1,0 +1,30 @@
+---
+import Admin from "../layouts/Admin.astro";
+Astro.response.status = 404;
+---
+
+<Admin title="404">
+  <p class="display big">404<span class="acid">.</span></p>
+  <p class="msg">no tool here. <a href="/">back to the list</a><span class="cursor">_</span></p>
+</Admin>
+
+<style>
+  .big {
+    font-size: clamp(5rem, 20vw, 12rem);
+    font-weight: 800;
+    letter-spacing: -0.065em;
+    line-height: 0.8;
+  }
+  .acid {
+    color: var(--acid);
+  }
+  .msg {
+    margin-top: 2rem;
+    margin-left: var(--offset);
+    color: var(--dim-1);
+  }
+  .msg a {
+    color: var(--bone);
+    border-bottom: 1px solid var(--dim-4);
+  }
+</style>

@@ -1,0 +1,251 @@
+---
+import Base from "../layouts/Base.astro";
+import Label from "@edwrdq/ui/Label.astro";
+import Seam from "@edwrdq/ui/Seam.astro";
+import Row from "@edwrdq/ui/Row.astro";
+import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
+import { iconNames } from "@edwrdq/ui/icons";
+
+const colors = [
+  ["--bg", "#060606"],
+  ["--surface", "#0d0d0d"],
+  ["--seam", "#222222"],
+  ["--seam-soft", "#141414"],
+  ["--bone", "#d6d3cc"],
+  ["--text", "#dcd9d2"],
+  ["--dim-1", "#8a8a8a"],
+  ["--dim-2", "#5e5e5e"],
+  ["--dim-3", "#444444"],
+  ["--dim-4", "#3a3a3a"],
+  ["--acid", "#b8c43a"],
+  ["--on-acid", "#060606"],
+];
+---
+
+<Base title="styleguide" noindex>
+  <div class="sg">
+    <header class="gutter head">
+      <Label n="000">STYLEGUIDE</Label>
+      <h1 class="display big">system<span class="acid">.</span></h1>
+      <p class="offset dim intro">the parts everything is made of. if it's not here, it probably shouldn't exist.</p>
+    </header>
+
+    <Seam />
+
+    <section class="gutter block">
+      <Label n="001">COLOR</Label>
+      <ul class="swatches">
+        {
+          colors.map(([name, hex]) => (
+            <li class="swatch">
+              <span class="chipc" style={`background: var(${name})`} />
+              <span class="sw-name">{name}</span>
+              <span class="sw-hex dimmer">{hex}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    <Seam />
+
+    <section class="gutter block">
+      <Label n="002">TYPE</Label>
+      <div class="type">
+        <p class="display t-hero">EDWARD</p>
+        <p class="display t-h1">quintero</p>
+        <p class="display t-h2">section title</p>
+        <p class="t-body">mono body. lowercase, casual, short. like i'm texting.</p>
+        <p class="t-body dim">dim-1 for secondary text</p>
+        <p class="t-body dimmer">dim-2 for tertiary text</p>
+        <p><Label>LABEL — WIDE MONO</Label></p>
+        <p><Label n="009">CONTACT</Label></p>
+        <p class="t-body">blinking cursor<span class="cursor">_</span></p>
+      </div>
+    </section>
+
+    <Seam />
+
+    <section class="gutter block">
+      <Label n="003">PIXEL ICONS</Label>
+      <ul class="icons">
+        {
+          iconNames.map((n) => (
+            <li>
+              <PixelIcon name={n} />
+              <PixelIcon name={n} size={48} />
+              <span class="dimmer">{n}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    <Seam />
+
+    <section class="gutter block">
+      <Label n="004">SEAMS</Label>
+      <div class="seams">
+        <p class="dimmer">hard (default) — second line starts at the offset column</p>
+        <Seam />
+        <p class="dimmer">soft</p>
+        <Seam tone="soft" />
+        <p class="dimmer">custom start (from="70%")</p>
+        <Seam from="70%" />
+      </div>
+    </section>
+
+    <Seam />
+
+    <section class="gutter block">
+      <Label n="005">ROWS</Label>
+      <ol class="rows demo-rows">
+        <Row n={1} title="first row" desc="active by default" icon="chart" href="#" />
+        <Row n={2} title="even row" desc="shifts right 16px" icon="chip" href="#" />
+        <Row n={3} title="hover me" desc="acid follows the cursor" icon="note" href="#" />
+        <Row n={4} title="planned" desc="dimmed" icon="car" href="#" status="planned" />
+      </ol>
+    </section>
+
+    <Seam />
+
+    <section class="gutter block">
+      <Label n="006">CONTROLS</Label>
+      <div class="controls">
+        <div class="chiprow">
+          <button class="chip" type="button">chip</button>
+          <button class="chip" type="button" aria-pressed="true">pressed</button>
+        </div>
+        <input class="field" placeholder="input" />
+        <textarea class="field" placeholder="textarea"></textarea>
+        <div class="chiprow">
+          <button class="btn btn-primary" type="button">PRIMARY</button>
+          <button class="btn" type="button">SECONDARY</button>
+          <button class="btn btn-primary" type="button" disabled>DISABLED</button>
+        </div>
+      </div>
+    </section>
+
+    <Seam />
+
+    <section class="gutter block">
+      <Label n="007">RULES</Label>
+      <ul class="rules offset">
+        <li>acid ≤ ~4 times per screen. never large areas, never body text.</li>
+        <li>no radius, shadow, gradient, blur, glow.</li>
+        <li>secondary blocks start at the offset (40% desktop, 30% phone).</li>
+        <li>every other row shifts right 16px.</li>
+        <li>when in doubt, remove it.</li>
+      </ul>
+    </section>
+  </div>
+</Base>
+
+<style>
+  .head {
+    padding-block: clamp(3rem, 10vw, 7rem) 4rem;
+  }
+  .big {
+    margin-top: 2rem;
+    font-size: clamp(4rem, 18vw, 12rem);
+  }
+  .acid {
+    color: var(--acid);
+  }
+  .intro {
+    margin-top: 2rem;
+    max-width: 36ch;
+  }
+  .block {
+    padding-block: 3rem 4rem;
+  }
+
+  .swatches {
+    margin-top: 2rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: 1.5rem 1rem;
+  }
+  .swatch {
+    display: grid;
+    gap: 0.35rem;
+    font-size: var(--fs-small);
+  }
+  .chipc {
+    display: block;
+    height: 3.5rem;
+    border: 1px solid var(--seam);
+  }
+
+  .type {
+    margin-top: 2rem;
+    display: grid;
+    gap: 1.25rem;
+  }
+  .t-hero {
+    font-size: clamp(4rem, 18vw, 14rem);
+    font-weight: 800;
+    letter-spacing: -0.065em;
+    line-height: 0.76;
+  }
+  .t-h1 {
+    font-size: clamp(2.5rem, 10vw, 6.5rem);
+    font-weight: 600;
+  }
+  .t-h2 {
+    font-size: clamp(1.5rem, 5vw, 2.5rem);
+    font-weight: 600;
+    letter-spacing: var(--track-tight);
+  }
+
+  .icons {
+    margin-top: 2rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
+    gap: 2rem 1rem;
+    color: var(--bone);
+  }
+  .icons li {
+    display: grid;
+    gap: 0.75rem;
+    justify-items: start;
+    font-size: var(--fs-small);
+  }
+
+  .seams {
+    margin-top: 2rem;
+    display: grid;
+    gap: 1rem;
+  }
+  .seams p {
+    font-size: var(--fs-small);
+  }
+
+  .demo-rows {
+    margin-top: 2rem;
+    border-bottom: 1px solid var(--seam-soft);
+  }
+
+  .controls {
+    margin-top: 2rem;
+    display: grid;
+    gap: 0.75rem;
+    max-width: 32rem;
+  }
+  .chiprow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .rules {
+    margin-top: 2rem;
+    display: grid;
+    gap: 0.5rem;
+    color: var(--dim-1);
+  }
+  .rules li::before {
+    content: "— ";
+    color: var(--dim-3);
+  }
+</style>

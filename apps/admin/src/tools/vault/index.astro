@@ -1,0 +1,568 @@
+---
+import { env } from "cloudflare:workers";
+import type { Entry } from "./shared";
+
+const { results } = await env.DB.prepare("SELECT * FROM vault_entries ORDER BY pinned DESC, uses DESC, updated_at DESC LIMIT 3000").all<Entry>();
+const data = JSON.stringify(results).replace(/</g, "\\u003c");
+---
+
+<div class="vault" data-vault>
+  <form class="cap" data-cap>
+    <label class="sr-only" for="v-body">new snippet</label>
+    <textarea id="v-body" class="field mono" rows="3" spellcheck="false" autocapitalize="none" placeholder="paste a command — it saves on paste. ⌘/ctrl+enter to save typed ones." data-cap-body></textarea>
+    <div class="caprow">
+      <input class="field title-in" placeholder="title (optional — defaults to the first line)" maxlength="200" data-cap-title />
+      <button type="submit" class="btn btn-primary">SAVE</button>
+    </div>
+    <p class="status" data-status aria-live="polite"></p>
+  </form>
+
+  <div class="bar">
+    <label class="sr-only" for="v-q">search</label>
+    <input id="v-q" class="field q" type="search" placeholder="search  ( / )" autocomplete="off" spellcheck="false" data-q />
+    <div class="chips">
+      <button type="button" class="chip" data-sort="used" aria-pressed="true">most used</button>
+      <button type="button" class="chip" data-sort="recent" aria-pressed="false">recent</button>
+    </div>
+    <div class="chips" data-langs></div>
+    <div class="chips" data-tags></div>
+  </div>
+
+  <p class="label count" data-count></p>
+  <ol class="list" data-list></ol>
+  <p class="empty" data-empty hidden>nothing matches.</p>
+
+  <div class="io">
+    <button type="button" class="btn sm" data-export>EXPORT .MD</button>
+    <label class="btn sm">
+      IMPORT .MD
+      <input type="file" accept=".md,.markdown,text/markdown,text/plain" class="sr-only" data-import />
+    </label>
+  </div>
+
+  <script type="application/json" data-json set:html={data} />
+</div>
+
+<style>
+  .vault {
+    max-width: 52rem;
+  }
+  .mono {
+    font-family: var(--font-mono);
+  }
+  .cap {
+    display: grid;
+    gap: 0.6rem;
+  }
+  .caprow {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .title-in {
+    flex: 1;
+    min-width: 0;
+  }
+  .caprow .btn {
+    height: auto;
+    min-height: 2.9rem;
+  }
+  .status {
+    font-size: var(--fs-small);
+    color: var(--text);
+    min-height: 1.2em;
+  }
+  .bar {
+    display: grid;
+    gap: 0.6rem;
+    margin-top: 1.5rem;
+  }
+  .q {
+    font-size: var(--fs-read);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .chips:empty {
+    display: none;
+  }
+  .chips :global(.chip) {
+    min-height: 2.5rem;
+  }
+  .count {
+    margin-block: 1.5rem 0.75rem;
+  }
+  .list {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .empty {
+    color: var(--dim-2);
+    padding-block: 1rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .io {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 2rem;
+  }
+  .btn.sm {
+    height: 2.75rem;
+    padding-inline: 0.85rem;
+  }
+
+  /* ---- entries (built in the script) */
+  .list :global(.e) {
+    display: grid;
+    gap: 0.5rem;
+    padding-block: 1rem 1.1rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .list :global(.e:nth-child(even)) {
+    margin-left: var(--shift);
+  }
+  .list :global(.e-top) {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+  }
+  .list :global(.e-title) {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.1rem;
+    letter-spacing: var(--track-tight);
+    color: var(--bone);
+    overflow-wrap: anywhere;
+  }
+  .list :global(.e-meta) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.7rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .list :global(.pin) {
+    color: var(--bone);
+  }
+  .list :global(pre.code) {
+    margin: 0;
+    padding: 0.75rem 0.85rem;
+    background: var(--surface);
+    border: 1px solid var(--seam-soft);
+    font-size: var(--fs-body);
+    line-height: 1.6;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-height: 22rem;
+  }
+  .list :global(.tk-c) { color: var(--dim-3); }
+  .list :global(.tk-s) { color: var(--bone); }
+  .list :global(.tk-f) { color: var(--dim-1); }
+  .list :global(.tk-n) { color: var(--bone); }
+  .list :global(.tk-k) { color: var(--bone); font-weight: 600; }
+  .list :global(.tk-ph) { color: var(--acid); }
+  .list :global(.e-note) {
+    color: var(--dim-1);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: var(--fs-small);
+  }
+  .list :global(.phs) {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+    gap: 0.4rem;
+  }
+  .list :global(.phs label) {
+    display: grid;
+    gap: 0.2rem;
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-2);
+  }
+  .list :global(.row) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .list :global(.btn) {
+    height: 2.75rem;
+    padding-inline: 0.85rem;
+  }
+  .list :global(.copy) {
+    min-width: 6.5rem;
+    border-color: var(--dim-3);
+    color: var(--bone);
+  }
+  .list :global(.copy.done) {
+    border-color: var(--acid);
+    color: var(--acid);
+  }
+  .list :global(.del) {
+    margin-left: auto;
+    color: var(--dim-2);
+  }
+  .list :global(.edit) {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .list :global(.edit textarea.body) {
+    font-family: var(--font-mono);
+    min-height: 8rem;
+  }
+  .list :global(.edit select) {
+    appearance: auto;
+    color-scheme: dark;
+  }
+  .list :global(.err) {
+    font-size: var(--fs-small);
+    color: var(--bone);
+  }
+  .list :global(.err:empty) {
+    display: none;
+  }
+</style>
+
+<script>
+  import { LANGS, guessLang, looksSecret, type Entry } from "./shared";
+
+  const root = document.querySelector<HTMLElement>("[data-vault]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    let entries: Entry[] = JSON.parse($("[data-json]").textContent || "[]");
+    let query = "";
+    let sortBy: "used" | "recent" = "used";
+    let langF: string | null = null;
+    let tagF: string | null = null;
+    const editing = new Set<number>();
+    const status = $("[data-status]");
+
+    function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, any> = {}, ...kids: (Node | string | null | false | undefined)[]) {
+      const n = document.createElement(tag);
+      for (const [k, v] of Object.entries(props)) {
+        if (k === "class") n.className = v;
+        else if (k === "text") n.textContent = v;
+        else if (k === "value") (n as any).value = v;
+        else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+        else if (v !== undefined && v !== null && v !== false) n.setAttribute(k, v === true ? "" : String(v));
+      }
+      for (const kid of kids) if (kid) n.append(kid);
+      return n;
+    }
+
+    async function api(path: string, payload: Record<string, unknown>) {
+      const res = await fetch(`/api/vault/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      const out = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !out.ok) throw Object.assign(new Error(out.error ?? `failed (${res.status})`), { secret: out.secret });
+      return out;
+    }
+    /** save with a secret check: warn, and only force on an explicit yes */
+    async function guarded(path: string, payload: Record<string, unknown>) {
+      const local = looksSecret(`${payload.title ?? ""}\n${payload.body ?? ""}\n${payload.note ?? ""}`);
+      if (local && !confirm(`this looks like it has ${local}.\n\nthe vault is for commands, not secrets. save anyway?`)) throw new Error("not saved.");
+      try {
+        return await api(path, { ...payload, force: !!local });
+      } catch (e: any) {
+        if (e.secret && confirm(`${e.message}. save anyway?`)) return api(path, { ...payload, force: true });
+        throw e;
+      }
+    }
+    const upsert = (e: Entry) => {
+      const i = entries.findIndex((x) => x.id === e.id);
+      if (i === -1) entries.unshift(e);
+      else entries[i] = e;
+    };
+
+    // ---------------- fuzzy search: substring hits score high, in-order letter hits score low
+    function fuzzy(hay: string, needle: string) {
+      const h = hay.toLowerCase();
+      const i = h.indexOf(needle);
+      if (i !== -1) return 100 - Math.min(i, 50) + (i === 0 || /\W/.test(h[i - 1]) ? 20 : 0);
+      let pos = 0;
+      let gaps = 0;
+      for (const ch of needle) {
+        const j = h.indexOf(ch, pos);
+        if (j === -1) return 0;
+        gaps += j - pos;
+        pos = j + 1;
+      }
+      return Math.max(1, 30 - gaps);
+    }
+    function score(e: Entry) {
+      if (!query) return 1;
+      let total = 0;
+      for (const w of query.split(/\s+/)) {
+        const s = Math.max(fuzzy(e.title, w) * 3, fuzzy(e.tags, w) * 2, fuzzy(e.body, w), fuzzy(e.note ?? "", w), fuzzy(e.lang, w));
+        if (!s) return 0;
+        total += s;
+      }
+      return total;
+    }
+
+    // ---------------- highlighting: tokens → spans (textContent only)
+    const KW: Record<string, string[]> = {
+      sh: ["sudo", "npx", "pnpm", "npm", "git", "cd", "export", "if", "then", "fi", "for", "do", "done", "echo", "curl", "wrangler", "docker", "ssh", "rm", "cp", "mv"],
+      ts: ["const", "let", "function", "return", "import", "from", "export", "await", "async", "type", "interface", "if", "else", "new"],
+      js: ["const", "let", "function", "return", "import", "from", "export", "await", "async", "if", "else", "new"],
+      rust: ["fn", "let", "mut", "pub", "struct", "enum", "impl", "use", "match", "return", "if", "else", "for", "in", "mod"],
+      sql: ["select", "from", "where", "insert", "into", "values", "update", "set", "delete", "create", "table", "index", "and", "or", "order", "by", "group", "limit", "join", "on"],
+      py: ["def", "return", "import", "from", "if", "else", "for", "in", "class", "with", "as"],
+      go: ["func", "return", "package", "import", "if", "else", "for", "range", "type", "struct", "var"],
+    };
+    const COMMENT: Record<string, string> = { sh: "#", py: "#", toml: "#", yaml: "#", ts: "//", js: "//", rust: "//", go: "//", css: "//", sql: "--" };
+    function highlight(code: string, lang: string) {
+      const pre = el("pre", { class: "code" });
+      const kws = new Set((KW[lang] ?? []).map((k) => k.toLowerCase()));
+      const cm = COMMENT[lang];
+      const cmRe = cm ? (cm === "#" ? "(?:^|(?<=\\s))#[^\\n]*" : cm.replace(/[/-]/g, "\\$&") + "[^\\n]*") : "(?!)";
+      const re = new RegExp(`(\\{\\{\\s*[\\w.-]+\\s*\\}\\})|(${cmRe})|("(?:\\\\.|[^"\\\\\\n])*"|'(?:\\\\.|[^'\\\\\\n])*'|\`(?:\\\\.|[^\`\\\\])*\`)|((?:^|(?<=\\s))--?[A-Za-z][\\w-]*)|(\\b\\d+(?:\\.\\d+)?\\b)|([A-Za-z_][\\w-]*)`, "gm");
+      let last = 0;
+      for (const m of code.matchAll(re)) {
+        if (m.index! > last) pre.append(code.slice(last, m.index));
+        const [t, ph, c, s, f, n, w] = m;
+        const cls = ph ? "tk-ph" : c ? "tk-c" : s ? "tk-s" : f ? "tk-f" : n ? "tk-n" : w && kws.has(w.toLowerCase()) ? "tk-k" : null;
+        if (s && /\{\{/.test(t)) {
+          // keep placeholders acid inside strings
+          const span = el("span", { class: "tk-s" });
+          for (const part of t.split(/(\{\{\s*[\w.-]+\s*\}\})/)) if (part) span.append(/^\{\{/.test(part) ? el("span", { class: "tk-ph", text: part }) : part);
+          pre.append(span);
+        } else pre.append(cls ? el("span", { class: cls, text: t }) : t);
+        last = m.index! + t.length;
+      }
+      if (last < code.length) pre.append(code.slice(last));
+      return pre;
+    }
+    const placeholders = (s: string) => [...new Set([...s.matchAll(/\{\{\s*([\w.-]+)\s*\}\}/g)].map((m) => m[1]))];
+
+    // ---------------- render
+    function renderChips() {
+      const langs = new Map<string, number>();
+      const tags = new Map<string, number>();
+      for (const e of entries) {
+        langs.set(e.lang, (langs.get(e.lang) ?? 0) + 1);
+        for (const t of e.tags ? e.tags.split(",") : []) tags.set(t, (tags.get(t) ?? 0) + 1);
+      }
+      const chip = (label: string, on: boolean, click: () => void) => el("button", { type: "button", class: "chip", "aria-pressed": String(on), text: label, onclick: click });
+      $("[data-langs]").replaceChildren(...[...langs].sort((a, b) => b[1] - a[1]).map(([l, n]) => chip(`${l} ${n}`, langF === l, () => ((langF = langF === l ? null : l), render()))));
+      $("[data-tags]").replaceChildren(...[...tags].sort((a, b) => b[1] - a[1]).map(([t, n]) => chip(`#${t} ${n}`, tagF === t, () => ((tagF = tagF === t ? null : t), render()))));
+    }
+
+    function renderEntry(e: Entry) {
+      const err = el("p", { class: "err", "aria-live": "polite" });
+      const fail = (x: unknown) => (err.textContent = x instanceof Error ? x.message : "failed");
+      const li = el("li", { class: "e", "data-id": e.id });
+
+      if (editing.has(e.id)) {
+        const title = el("input", { class: "field", value: e.title, maxlength: 200 }) as HTMLInputElement;
+        const body = el("textarea", { class: "field body", spellcheck: "false" }) as HTMLTextAreaElement;
+        body.value = e.body;
+        const lang = el("select", { class: "field" }, ...LANGS.map((l) => el("option", { value: l, text: l, selected: l === e.lang }))) as HTMLSelectElement;
+        const note = el("textarea", { class: "field", rows: 2, placeholder: "note — when / why", maxlength: 2000 }) as HTMLTextAreaElement;
+        note.value = e.note ?? "";
+        const tags = el("input", { class: "field", value: e.tags.replace(/,/g, " "), placeholder: "tags (space separated)" }) as HTMLInputElement;
+        li.append(
+          el("div", { class: "edit" }, title, body, lang, note, tags,
+            el("div", { class: "row" },
+              el("button", { type: "button", class: "btn", text: "SAVE", onclick: async () => {
+                try {
+                  upsert((await guarded("update", { id: e.id, title: title.value, body: body.value, lang: lang.value, note: note.value, tags: tags.value })).entry);
+                  editing.delete(e.id);
+                  render();
+                } catch (x) { fail(x); }
+              } }),
+              el("button", { type: "button", class: "btn", text: "CANCEL", onclick: () => (editing.delete(e.id), render()) }),
+            ),
+          ),
+          err,
+        );
+        return li;
+      }
+
+      const phs = placeholders(e.body);
+      const inputs = new Map<string, HTMLInputElement>();
+      const phBox = phs.length
+        ? el("div", { class: "phs" }, ...phs.map((p) => {
+            const i = el("input", { class: "field", placeholder: p, autocomplete: "off", spellcheck: "false", autocapitalize: "none" }) as HTMLInputElement;
+            inputs.set(p, i);
+            return el("label", {}, p.toUpperCase(), i);
+          }))
+        : null;
+
+      const copyBtn = el("button", { type: "button", class: "btn copy", text: "COPY" });
+      copyBtn.addEventListener("click", async () => {
+        const text = e.body.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (m, name) => inputs.get(name)?.value || m);
+        try {
+          await navigator.clipboard.writeText(text);
+          copyBtn.textContent = "COPIED";
+          copyBtn.classList.add("done");
+          setTimeout(() => ((copyBtn.textContent = "COPY"), copyBtn.classList.remove("done")), 1000);
+          const { entry } = await api("use", { id: e.id });
+          upsert(entry);
+          li.querySelector(".uses")!.textContent = `${entry.uses} ${entry.uses === 1 ? "use" : "uses"}`;
+        } catch (x) { fail(x); }
+      });
+
+      // filter: dom append() would print a literal "null" for skipped parts
+      const parts: (Node | null)[] = [
+        el("div", { class: "e-top" }, el("span", { class: "e-title", text: e.title })),
+        el("p", { class: "e-meta" },
+          e.pinned ? el("span", { class: "pin", text: "[pinned]" }) : null,
+          el("span", { text: e.lang }),
+          ...(e.tags ? e.tags.split(",").map((t) => el("span", { text: `#${t}` })) : []),
+          el("span", { class: "uses", text: `${e.uses} ${e.uses === 1 ? "use" : "uses"}` }),
+        ),
+        highlight(e.body, e.lang),
+        e.note ? el("p", { class: "e-note", text: e.note }) : null,
+        phBox,
+        el("div", { class: "row" },
+          copyBtn,
+          el("button", { type: "button", class: "btn", text: e.pinned ? "UNPIN" : "PIN", onclick: async () => { try { upsert((await api("pin", { id: e.id, pinned: !e.pinned })).entry); render(); } catch (x) { fail(x); } } }),
+          el("button", { type: "button", class: "btn", text: "EDIT", onclick: () => (editing.add(e.id), render()) }),
+          el("button", { type: "button", class: "btn", text: "DUP", onclick: async () => { try { upsert((await api("duplicate", { id: e.id })).entry); render(); } catch (x) { fail(x); } } }),
+          el("button", { type: "button", class: "btn del", text: "DELETE", onclick: async () => {
+            if (!confirm(`delete "${e.title}"?`)) return;
+            try { await api("delete", { id: e.id }); entries = entries.filter((x) => x.id !== e.id); render(); } catch (x) { fail(x); }
+          } }),
+        ),
+        err,
+      ];
+      li.append(...parts.filter((x): x is Node => !!x));
+      return li;
+    }
+
+    function render() {
+      const scored = entries
+        .filter((e) => (!langF || e.lang === langF) && (!tagF || e.tags.split(",").includes(tagF)))
+        .map((e) => ({ e, s: score(e) }))
+        .filter((x) => x.s > 0)
+        .sort((a, b) =>
+          query ? b.s - a.s || b.e.pinned - a.e.pinned
+          : b.e.pinned - a.e.pinned || (sortBy === "used" ? b.e.uses - a.e.uses : 0) || (b.e.last_used_at ?? b.e.updated_at) - (a.e.last_used_at ?? a.e.updated_at),
+        );
+      $("[data-list]").replaceChildren(...scored.map((x) => renderEntry(x.e)));
+      $("[data-empty]").hidden = scored.length > 0;
+      $("[data-count]").textContent = `${scored.length} OF ${entries.length}`;
+      renderChips();
+    }
+
+    // ---------------- capture
+    const capBody = $<HTMLTextAreaElement>("[data-cap-body]");
+    const capTitle = $<HTMLInputElement>("[data-cap-title]");
+    const save = async () => {
+      const text = capBody.value;
+      if (!text.trim()) return;
+      status.textContent = "…";
+      try {
+        const { entry } = await guarded("create", { body: text, title: capTitle.value, lang: guessLang(text) });
+        upsert(entry);
+        capBody.value = "";
+        capTitle.value = "";
+        status.textContent = `saved — ${entry.title}`;
+        render();
+      } catch (e) {
+        status.textContent = (e as Error).message;
+      }
+    };
+    $("[data-cap]").addEventListener("submit", (e) => (e.preventDefault(), save()));
+    capBody.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) (e.preventDefault(), save());
+    });
+    // paste into an empty box saves right away
+    capBody.addEventListener("paste", () => {
+      if (capBody.value.trim()) return;
+      setTimeout(() => capBody.value.trim() && save(), 0);
+    });
+
+    // ---------------- search / sort
+    const q = $<HTMLInputElement>("[data-q]");
+    q.addEventListener("input", () => ((query = q.value.trim().toLowerCase()), render()));
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "/" && !(e.target as HTMLElement).matches("input, textarea, select")) {
+        e.preventDefault();
+        q.focus();
+        q.select();
+      }
+    });
+    root.addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-sort]");
+      if (!b) return;
+      sortBy = b.dataset.sort as typeof sortBy;
+      root.querySelectorAll("[data-sort]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      render();
+    });
+
+    // ---------------- markdown export / import
+    $("[data-export]").addEventListener("click", () => {
+      const md = ["# vault", ""];
+      for (const e of [...entries].sort((a, b) => a.title.localeCompare(b.title))) {
+        md.push(`## ${e.title}`, "");
+        if (e.note) md.push(e.note, "");
+        if (e.tags) md.push(`tags: ${e.tags.split(",").join(", ")}`, "");
+        const fence = e.body.includes("```") ? "````" : "```";
+        md.push(fence + e.lang, e.body, fence, "");
+      }
+      const a = el("a", { href: URL.createObjectURL(new Blob([md.join("\n")], { type: "text/markdown" })), download: `vault-${new Date().toISOString().slice(0, 10)}.md` }) as HTMLAnchorElement;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+
+    function parseMarkdown(md: string) {
+      const out: { title: string; body: string; lang: string; note: string; tags: string }[] = [];
+      let heading = "";
+      let note: string[] = [];
+      let tags = "";
+      const lines = md.replace(/\r\n?/g, "\n").split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const h = line.match(/^#{1,6}\s+(.+)$/);
+        const fence = line.match(/^(`{3,}|~{3,})\s*([\w+-]*)/);
+        if (h && !fence) {
+          if (/^#\s+vault$/i.test(line)) continue;
+          heading = h[1].trim();
+          note = [];
+          tags = "";
+        } else if (fence) {
+          const close = fence[1];
+          const body: string[] = [];
+          for (i++; i < lines.length && !lines[i].startsWith(close); i++) body.push(lines[i]);
+          const text = body.join("\n");
+          if (text.trim()) {
+            const n = out.filter((x) => x.title.startsWith(heading) && heading).length;
+            out.push({ title: heading ? (n ? `${heading} (${n + 1})` : heading) : "", body: text, lang: fence[2] || guessLang(text), note: note.join("\n").trim(), tags });
+          }
+        } else if (/^tags:\s*/i.test(line)) {
+          tags = line.replace(/^tags:\s*/i, "");
+        } else if (line.trim()) {
+          note.push(line.replace(/^>\s?/, ""));
+        }
+      }
+      return out;
+    }
+    $<HTMLInputElement>("[data-import]").addEventListener("change", async (e) => {
+      const f = (e.target as HTMLInputElement).files?.[0];
+      (e.target as HTMLInputElement).value = "";
+      if (!f) return;
+      const found = parseMarkdown(await f.text());
+      if (!found.length) return void (status.textContent = "no code blocks found in that file.");
+      if (!confirm(`import ${found.length} snippets from ${f.name}?`)) return;
+      try {
+        let out;
+        try {
+          out = await api("import", { entries: found });
+        } catch (x: any) {
+          if (x.secret && confirm(`${x.message}. import anyway?`)) out = await api("import", { entries: found, force: true });
+          else throw x;
+        }
+        status.textContent = `imported ${out.imported}. reloading…`;
+        setTimeout(() => location.reload(), 600);
+      } catch (x) {
+        status.textContent = (x as Error).message;
+      }
+    });
+
+    render();
+    if (matchMedia("(pointer: fine)").matches) q.focus();
+  }
+</script>

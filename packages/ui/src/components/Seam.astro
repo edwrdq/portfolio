@@ -1,0 +1,44 @@
+---
+// raw seam: a full-bleed hairline, then a second one 4px below that starts at the offset.
+interface Props {
+  /** where the second line starts. defaults to the --offset token */
+  from?: string;
+  /** "soft" uses --seam-soft for quieter dividers */
+  tone?: "hard" | "soft";
+  class?: string;
+}
+
+const { from, tone = "hard", class: cls } = Astro.props;
+const style = from ? `--seam-from: ${from}` : undefined;
+---
+
+<div class:list={["seam", `seam-${tone}`, cls]} style={style} role="separator" aria-hidden="true"></div>
+
+<style>
+  .seam {
+    --seam-color: var(--seam);
+    position: relative;
+    width: 100%;
+    height: calc(1px + var(--seam-gap) + 1px);
+  }
+  .seam-soft {
+    --seam-color: var(--seam-soft);
+  }
+  .seam::before,
+  .seam::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    height: 1px;
+    background: var(--seam-color);
+  }
+  .seam::before {
+    top: 0;
+    left: 0;
+  }
+  .seam::after {
+    bottom: 0;
+    /* default: line up with the offset text column */
+    left: var(--seam-from, calc(var(--gutter) + var(--offset-k) * (100% - 2 * var(--gutter))));
+  }
+</style>

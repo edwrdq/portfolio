@@ -1,0 +1,45 @@
+---
+// big lowercase title + intro at the offset. used by section pages and the blog.
+import Label from "@edwrdq/ui/Label.astro";
+
+interface Props {
+  n?: string;
+  label: string;
+  title: string;
+  intro?: string;
+}
+
+const { n, label, title, intro } = Astro.props;
+---
+
+<header class="head gutter">
+  <Label n={n}>{label}</Label>
+  <h1 class="display title">{title}</h1>
+  {intro && <p class="intro">{intro}</p>}
+</header>
+
+<style>
+  .head {
+    padding-top: clamp(3rem, 10vw, 7rem);
+    padding-bottom: clamp(3rem, 8vw, 5rem);
+  }
+  .title {
+    margin-top: clamp(1.5rem, 4vw, 2.5rem);
+    font-size: clamp(3.25rem, 14vw, 11rem);
+    font-weight: 700;
+    line-height: 0.82;
+    text-transform: lowercase;
+    overflow-wrap: anywhere;
+  }
+  .intro {
+    margin-top: clamp(1.75rem, 4vw, 2.75rem);
+    margin-left: var(--offset);
+    max-width: 36ch;
+    color: var(--dim-1);
+  }
+  @media (min-width: 720px) {
+    .intro {
+      font-size: var(--fs-read);
+    }
+  }
+</style>

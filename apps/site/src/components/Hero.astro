@@ -1,0 +1,120 @@
+---
+---
+
+<section class="hero gutter" aria-label="intro">
+  <span class="label side">DORAL / FLORIDA</span>
+
+  <div class="stack">
+    <h1 class="name">
+      <span class="display first">EDWARD</span>
+      <span class="sr-only">&nbsp;</span>
+      <span class="display last">quintero</span>
+    </h1>
+    <span class="bar" aria-hidden="true"></span>
+    <p class="tagline">
+      engineer. founder. builds things that move, compute, trade, and sound good<span
+        class="cursor"
+        aria-hidden="true">_</span
+      >
+    </p>
+    <div class="now-slot"><slot name="now" /></div>
+    <div class="live-slot"><slot name="live" /></div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    /* width of the side-label column incl. its gap */
+    --side: 1.75rem;
+    display: grid;
+    grid-template-columns: calc(var(--side) - 0.5rem) minmax(0, 1fr);
+    column-gap: 0.5rem;
+    padding-top: clamp(3.5rem, 12vw, 9rem);
+  }
+
+  .side {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    align-self: start;
+    color: var(--dim-3);
+    letter-spacing: 0.3em;
+  }
+
+  /* the stack is narrower than the page by --side, so re-derive the page offset */
+  .stack {
+    --o: calc(var(--offset-k) * 100% - (1 - var(--offset-k)) * var(--side));
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .name {
+    display: contents;
+    font: inherit;
+  }
+
+  .first {
+    order: 1;
+    font-size: clamp(4.25rem, 21vw, 20rem);
+    font-weight: 800;
+    letter-spacing: -0.065em;
+    line-height: 0.76;
+    margin-left: -0.04em; /* optical: pull the E to the edge */
+  }
+
+  .bar {
+    order: 2;
+    display: block;
+    width: clamp(2.5rem, 6vw, 4.5rem);
+    height: 4px;
+    background: var(--acid);
+    margin-top: clamp(1.25rem, 3vw, 2rem);
+  }
+
+  .last {
+    order: 3;
+    margin-left: var(--o);
+    margin-top: clamp(1.5rem, 4vw, 2.75rem);
+    font-size: clamp(2.5rem, 10vw, 6.5rem);
+    font-weight: 600;
+    line-height: 0.9;
+  }
+
+  .tagline {
+    order: 4;
+    margin-left: var(--o);
+    margin-top: clamp(1.5rem, 3.5vw, 2.25rem);
+    max-width: 36ch;
+    color: var(--dim-1);
+    line-height: 1.7;
+  }
+
+  .now-slot {
+    order: 5;
+    margin-left: var(--o);
+    margin-top: clamp(1.5rem, 3vw, 2rem);
+    min-width: 0;
+    /* one line reserved so the page doesn't jump when it fills in */
+    min-height: 1.3rem;
+  }
+  .now-slot:empty {
+    display: none;
+  }
+
+  .live-slot {
+    order: 6;
+    margin-left: var(--o);
+    margin-top: clamp(2.5rem, 6vw, 4rem);
+    /* reserve space so the island doesn't shove the page around */
+    min-height: 7.5rem;
+  }
+
+  @media (min-width: 720px) {
+    .hero {
+      --side: 2.5rem;
+    }
+    .tagline {
+      font-size: var(--fs-read);
+    }
+  }
+</style>

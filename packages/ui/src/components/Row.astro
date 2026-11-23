@@ -1,0 +1,135 @@
+---
+// numbered index row. render inside <ol class="rows"> so the first row is
+// active (acid) and every other row shifts right.
+import PixelIcon from "./PixelIcon.astro";
+import type { IconName } from "../icons";
+
+interface Props {
+  n: number | string;
+  title: string;
+  desc?: string;
+  icon?: IconName;
+  href?: string;
+  status?: "planned" | string;
+  class?: string;
+}
+
+const { n, title, desc, icon, href, status, class: cls } = Astro.props;
+const num = typeof n === "number" ? String(n).padStart(3, "0") : n;
+const Tag = href ? "a" : "div";
+const planned = status === "planned";
+---
+
+<li class:list={["row", planned && "row-planned", cls]}>
+  <Tag class="row-inner" href={href}>
+    <span class="row-n acc">{num}</span>
+    <span class="row-icon acc">{icon && <PixelIcon name={icon} />}</span>
+    <span class="row-title">{title}</span>
+    <span class="row-desc">
+      {desc}
+      {status && <span class="row-status">[{status}]</span>}
+      <slot />
+    </span>
+  </Tag>
+</li>
+
+<style>
+  .row {
+    border-top: 1px solid var(--seam-soft);
+  }
+  .row:nth-child(even) {
+    margin-left: var(--shift);
+  }
+
+  .row-inner {
+    display: grid;
+    grid-template-columns: 4.5ch 16px minmax(0, 1fr);
+    grid-template-areas:
+      "n icon title"
+      ". .    desc";
+    column-gap: 0.875rem;
+    row-gap: 0.25rem;
+    align-items: baseline;
+    padding-block: var(--row-pad, 1.1rem 1.15rem);
+  }
+
+  .row-n {
+    grid-area: n;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+    font-variant-numeric: tabular-nums;
+    transition: color var(--fast) var(--ease);
+  }
+
+  .row-icon {
+    grid-area: icon;
+    align-self: center;
+    color: var(--dim-3);
+    transition: color var(--fast) var(--ease);
+  }
+
+  .row-title {
+    grid-area: title;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: var(--row-title, clamp(1.5rem, 5.5vw, 2.5rem));
+    line-height: 1;
+    letter-spacing: var(--track-tight);
+    color: var(--bone);
+    text-transform: lowercase;
+    transition: transform var(--fast) var(--ease);
+  }
+
+  .row-desc {
+    grid-area: desc;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+
+  .row-status {
+    margin-left: 0.75ch;
+    color: var(--dim-3);
+  }
+
+  /* acid: first row by default, then whichever row is hovered/focused */
+  :global(.rows) .row:first-child .acc,
+  .row:hover .acc,
+  .row:focus-within .acc {
+    color: var(--acid);
+  }
+  :global(.rows:hover) .row:first-child:not(:hover) .acc,
+  :global(.rows:focus-within) .row:first-child:not(:focus-within) .acc {
+    color: var(--dim-2);
+  }
+  :global(.rows:hover) .row:first-child:not(:hover) .row-icon,
+  :global(.rows:focus-within) .row:first-child:not(:focus-within) .row-icon {
+    color: var(--dim-3);
+  }
+  a.row-inner:hover .row-title,
+  a.row-inner:focus-visible .row-title {
+    transform: translateX(6px);
+  }
+  a.row-inner:focus-visible {
+    outline: none;
+  }
+
+  .row-planned .row-title {
+    color: var(--dim-3);
+  }
+  .row-planned .row-desc {
+    color: var(--dim-3);
+  }
+
+  @media (min-width: 960px) {
+    .row-inner {
+      /* desc lands on the offset line */
+      grid-template-columns: 5ch 16px minmax(0, calc(var(--offset) - 5ch - 16px - 3 * 1.25rem)) minmax(0, 1fr);
+      grid-template-areas: "n icon title desc";
+      column-gap: 1.25rem;
+      padding-block: var(--row-pad, 1.35rem);
+    }
+    .row-desc {
+      font-size: var(--fs-body);
+    }
+  }
+</style>

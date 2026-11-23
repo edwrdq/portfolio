@@ -1,0 +1,436 @@
+---
+import { env } from "cloudflare:workers";
+import { activeStatus, activeTrack, computeNow, TAGS } from "@edwrdq/now";
+import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
+import { ago, when } from "../../lib/http";
+
+type Row = { id: number; kind: string; text: string; tag: string | null; artist: string | null; url: string | null; created_at: number; expires_at: number | null; cleared_at: number | null };
+
+const [{ now, debug }, status, track, { results: history }] = await Promise.all([
+  computeNow(env),
+  activeStatus(env.DB),
+  activeTrack(env.DB),
+  env.DB.prepare("SELECT * FROM now_status WHERE kind = 'status' ORDER BY created_at DESC, id DESC LIMIT 40").all<Row>(),
+]);
+
+const nowS = Math.floor(Date.now() / 1000);
+const left = (exp: number | null) => {
+  if (exp === null) return "no expiry";
+  const s = exp - nowS;
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m left`;
+  return `${Math.round(s / 3600)}h left`;
+};
+const ended = (r: Row) =>
+  r.cleared_at ? `cleared ${ago(r.cleared_at)}` : r.expires_at && r.expires_at <= nowS ? `expired ${ago(r.expires_at)}` : "active";
+
+const s = now.status;
+const previewText = s ? (s.tag && s.source === "manual" && !s.text.toLowerCase().startsWith(s.tag) ? `${s.tag} — ${s.text}` : s.text) : null;
+---
+
+<div class="now-tool" data-now-tool>
+  <!-- what the public sees right now -->
+  <section class="block">
+    <p class="label">PUBLIC — RIGHT NOW</p>
+    <div class:list={["preview", (s?.live || now.music) && "is-live"]}>
+      {
+        !s && !now.music ? (
+          <p class="dimmer">nothing — strip is hidden.</p>
+        ) : (
+          <>
+            <p class="l1">
+              <span class="dot" />
+              <span class="txt">{previewText ?? "listening"}</span>
+              {s && !s.live && s.since && <span class="dimmer">{ago(Date.parse(s.since) / 1000)}</span>}
+              <span class="src">[{s?.source ?? "music"}]</span>
+            </p>
+            {now.music && (
+              <p class="l2">
+                <PixelIcon name="note" size={12} />
+                <span>{now.music.artist ? `${now.music.track} — ${now.music.artist}` : now.music.track}</span>
+                <span class="src">[{now.music.source}]</span>
+              </p>
+            )}
+          </>
+        )
+      }
+    </div>
+  </section>
+
+  <!-- status -->
+  <section class="block">
+    <p class="label">STATUS</p>
+    {
+      status && (
+        <p class="active">
+          <span>{status.tag ? `${status.tag} — ${status.text}` : status.text}</span>
+          <span class="dimmer">· {left(status.expires_at)}</span>
+          <button type="button" class="btn small" data-post="clear-status">CLEAR</button>
+        </p>
+      )
+    }
+    <form class="form" data-form="status">
+      <input class="field" name="text" maxlength="120" placeholder="building hlvm" autocomplete="off" required />
+      <div class="chips" role="radiogroup" aria-label="tag">
+        <button type="button" class="chip" data-pick="tag" data-value="" aria-pressed="true">no tag</button>
+        {TAGS.map((t) => <button type="button" class="chip" data-pick="tag" data-value={t} aria-pressed="false">{t}</button>)}
+      </div>
+      <div class="chips" role="radiogroup" aria-label="clears">
+        <span class="hint">CLEARS</span>
+        <button type="button" class="chip" data-pick="exp" data-value="1h" aria-pressed="false">1h</button>
+        <button type="button" class="chip" data-pick="exp" data-value="4h" aria-pressed="true">4h</button>
+        <button type="button" class="chip" data-pick="exp" data-value="eod" aria-pressed="false">end of day</button>
+        <button type="button" class="chip" data-pick="exp" data-value="never" aria-pressed="false">never</button>
+      </div>
+      <button type="submit" class="btn btn-primary">SET STATUS</button>
+    </form>
+  </section>
+
+  <!-- listening -->
+  <section class="block">
+    <p class="label">LISTENING TO — ONLY USED WHEN CIDER ISN'T REPORTING</p>
+    {
+      track && (
+        <p class="active">
+          <span>{track.artist ? `${track.text} — ${track.artist}` : track.text}</span>
+          <span class="dimmer">· {left(track.expires_at)}</span>
+          <button type="button" class="btn small" data-post="clear-track">CLEAR</button>
+        </p>
+      )
+    }
+    <form class="form" data-form="track">
+      <div class="two">
+        <input class="field" name="text" maxlength="120" placeholder="track" autocomplete="off" required />
+        <input class="field" name="artist" maxlength="120" placeholder="artist" autocomplete="off" />
+      </div>
+      <input class="field" name="url" maxlength="500" placeholder="link (optional)" inputmode="url" autocomplete="off" />
+      <div class="chips" role="radiogroup" aria-label="clears">
+        <span class="hint">CLEARS</span>
+        <button type="button" class="chip" data-pick="exp" data-value="30m" aria-pressed="false">30m</button>
+        <button type="button" class="chip" data-pick="exp" data-value="1h" aria-pressed="true">1h</button>
+        <button type="button" class="chip" data-pick="exp" data-value="3h" aria-pressed="false">3h</button>
+      </div>
+      <button type="submit" class="btn">SET TRACK</button>
+    </form>
+  </section>
+
+  <p class="status" data-status aria-live="polite"></p>
+
+  <!-- sources -->
+  <section class="block">
+    <p class="label">AUTO SOURCES</p>
+    <dl class="lines">
+      <div class="line">
+        <dt>discord / lanyard</dt>
+        <dd>
+          {
+            debug.lanyard.state === "off"
+              ? "off — DISCORD_USER_ID isn't set"
+              : debug.lanyard.state === "not_monitored"
+                ? "not monitored — join the lanyard discord server"
+                : debug.lanyard.state === "error"
+                  ? `error: ${debug.lanyard.error}`
+                  : `ok · ${debug.lanyard.activities?.length ?? 0} activities`
+          }
+        </dd>
+      </div>
+      <div class="line">
+        <dt>hackatime</dt>
+        <dd>
+          {
+            debug.hackatime.state === "off"
+              ? "off — HACKATIME_API_KEY isn't set"
+              : debug.hackatime.state === "error"
+                ? `error: ${debug.hackatime.error}`
+                : debug.hackatime.project
+                  ? `last: ${debug.hackatime.project} · ${debug.hackatime.at ? ago(Date.parse(debug.hackatime.at) / 1000) : "?"}`
+                  : "ok · no heartbeats yet"
+          }
+        </dd>
+      </div>
+    </dl>
+    {
+      debug.lanyard.state === "ok" && (
+        <details class="raw">
+          <summary class="label">RAW LANYARD ACTIVITIES</summary>
+          <pre>{JSON.stringify({ activities: debug.lanyard.activities, spotify: debug.lanyard.spotify }, null, 2)}</pre>
+        </details>
+      )
+    }
+  </section>
+
+  <!-- history -->
+  <section class="block">
+    <p class="label">HISTORY</p>
+    {
+      history.length === 0 ? (
+        <p class="dimmer empty">no statuses yet.</p>
+      ) : (
+        <ol class="hist">
+          {history.map((r) => (
+            <li class="h">
+              <div class="h-main">
+                <span class="h-text">{r.tag ? `${r.tag} — ${r.text}` : r.text}</span>
+                <span class="h-meta">
+                  <time title={when(r.created_at)}>{ago(r.created_at)}</time> · {ended(r)}
+                </span>
+              </div>
+              <div class="h-actions">
+                <button type="button" class="btn small" data-reuse={r.text} data-reuse-tag={r.tag ?? ""}>REUSE</button>
+                <button type="button" class="btn small del" data-delete={r.id}>DELETE</button>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )
+    }
+  </section>
+</div>
+
+<style>
+  .now-tool {
+    display: grid;
+    gap: 2.5rem;
+    max-width: 52rem;
+  }
+  .block > .label {
+    margin-bottom: 1rem;
+  }
+
+  .preview {
+    display: grid;
+    gap: 0.45rem;
+    padding: 1rem;
+    border: 1px solid var(--seam);
+    font-size: var(--fs-small);
+  }
+  .l1,
+  .l2 {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+  }
+  .l2 {
+    color: var(--dim-1);
+  }
+  .dot {
+    width: 6px;
+    height: 6px;
+    background: var(--acid);
+    flex: none;
+  }
+  .preview:not(.is-live) .txt {
+    color: var(--dim-2);
+  }
+  .src {
+    margin-left: auto;
+    color: var(--dim-3);
+  }
+
+  .active {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--seam-soft);
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .active .btn {
+    margin-left: auto;
+  }
+
+  .form {
+    display: grid;
+    gap: 0.75rem;
+  }
+  .two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .chip {
+    min-height: 2.25rem;
+  }
+  .hint {
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-3);
+    margin-right: 0.25rem;
+  }
+  .form > .btn {
+    justify-self: start;
+  }
+  .btn.small {
+    height: 2rem;
+    padding-inline: 0.75rem;
+  }
+  .status {
+    font-size: var(--fs-small);
+    color: var(--bone);
+    min-height: 1em;
+    margin-block: -1.5rem;
+  }
+
+  .lines {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .line {
+    display: grid;
+    grid-template-columns: 11rem minmax(0, 1fr);
+    gap: 1rem;
+    padding-block: 0.6rem;
+    border-top: 1px solid var(--seam-soft);
+    font-size: var(--fs-small);
+  }
+  dt {
+    color: var(--dim-2);
+  }
+  .raw {
+    margin-top: 1rem;
+  }
+  .raw summary {
+    cursor: pointer;
+  }
+  .raw pre {
+    margin-top: 0.75rem;
+    font-size: var(--fs-micro);
+    line-height: 1.5;
+    color: var(--dim-1);
+    background: var(--surface);
+    border: 1px solid var(--seam-soft);
+    padding: 0.75rem;
+    overflow-x: auto;
+    max-height: 50vh;
+  }
+
+  .hist {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .h {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    padding-block: 0.7rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .h:nth-child(even) {
+    margin-left: var(--shift);
+  }
+  .h-main {
+    display: grid;
+    gap: 0.2rem;
+    min-width: 0;
+    flex: 1 1 16rem;
+  }
+  .h-text {
+    overflow-wrap: anywhere;
+  }
+  .h-meta {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .h-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .del {
+    color: var(--dim-2);
+  }
+  .empty {
+    padding-block: 1rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+
+  @media (max-width: 560px) {
+    .two {
+      grid-template-columns: 1fr;
+    }
+    .line {
+      grid-template-columns: 1fr;
+      gap: 0.2rem;
+    }
+  }
+</style>
+
+<script>
+  const root = document.querySelector<HTMLElement>("[data-now-tool]");
+  if (root) {
+    const status = root.querySelector<HTMLElement>("[data-status]")!;
+
+    async function post(action: string, payload: Record<string, unknown> = {}) {
+      status.textContent = "saving…";
+      try {
+        const res = await fetch(`/api/now/${action}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const out = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!res.ok || !out.ok) throw new Error(out.error ?? `failed (${res.status})`);
+        location.reload();
+      } catch (e) {
+        status.textContent = e instanceof Error ? e.message : "failed";
+      }
+    }
+
+    // expiry choices → unix seconds, computed on this device (so "end of day" is local)
+    const expiryOf = (v: string): number | null => {
+      const now = Date.now();
+      if (v === "never") return null;
+      if (v === "eod") {
+        const d = new Date();
+        d.setHours(23, 59, 59, 0);
+        return Math.floor(d.getTime() / 1000);
+      }
+      const m = v.match(/^(\d+)(m|h)$/);
+      if (!m) return null;
+      return Math.floor((now + Number(m[1]) * (m[2] === "h" ? 3600_000 : 60_000)) / 1000);
+    };
+
+    // chip groups behave like radios
+    root.addEventListener("click", (e) => {
+      const el = e.target as HTMLElement;
+      const chip = el.closest<HTMLButtonElement>("[data-pick]");
+      if (chip) {
+        const group = chip.closest(".chips")!;
+        group.querySelectorAll<HTMLButtonElement>(`[data-pick="${chip.dataset.pick}"]`).forEach((c) => c.setAttribute("aria-pressed", String(c === chip)));
+        return;
+      }
+      const p = el.closest<HTMLButtonElement>("[data-post]");
+      if (p) return void post(p.dataset.post!);
+      const reuse = el.closest<HTMLButtonElement>("[data-reuse]");
+      if (reuse) {
+        const form = root.querySelector<HTMLFormElement>('[data-form="status"]')!;
+        form.querySelector<HTMLInputElement>('[name="text"]')!.value = reuse.dataset.reuse ?? "";
+        form.querySelectorAll<HTMLButtonElement>('[data-pick="tag"]').forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.value === (reuse.dataset.reuseTag ?? ""))));
+        form.querySelector<HTMLInputElement>('[name="text"]')!.focus();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      const del = el.closest<HTMLButtonElement>("[data-delete]");
+      if (del && confirm("delete this from history?")) post("delete", { id: Number(del.dataset.delete) });
+    });
+
+    root.addEventListener("submit", (e) => {
+      const form = (e.target as HTMLElement).closest<HTMLFormElement>("[data-form]");
+      if (!form) return;
+      e.preventDefault();
+      const kind = form.dataset.form!;
+      const f = new FormData(form);
+      const picked = (name: string) => form.querySelector<HTMLButtonElement>(`[data-pick="${name}"][aria-pressed="true"]`)?.dataset.value ?? "";
+      const payload: Record<string, unknown> = { text: f.get("text"), expires_at: expiryOf(picked("exp")) };
+      if (kind === "status") payload.tag = picked("tag") || null;
+      else Object.assign(payload, { artist: f.get("artist"), url: f.get("url") });
+      post(kind, payload);
+    });
+  }
+</script>

@@ -1,0 +1,18 @@
+---
+import Admin from "../layouts/Admin.astro";
+import Row from "@edwrdq/ui/Row.astro";
+import { tools } from "../lib/tools";
+---
+
+<Admin>
+  <ol class="rows tools">
+    {tools.map((t, i) => <Row n={i + 1} title={t.name} desc={t.description} icon={t.icon} href={`/${t.slug}`} />)}
+  </ol>
+  {tools.length === 0 && <p class="dimmer">no tools. add a folder to src/tools/.</p>}
+</Admin>
+
+<style>
+  .tools {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+</style>

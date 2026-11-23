@@ -1,0 +1,156 @@
+---
+// one project entry on a section page
+import type { CollectionEntry } from "astro:content";
+import { render } from "astro:content";
+import { stampMonth } from "../lib/content";
+
+interface Props {
+  entry: CollectionEntry<"projects">;
+  n: string;
+}
+
+const { entry, n } = Astro.props;
+const { title, date, summary, status, links, image, imageAlt, demo } = entry.data;
+const { Content } = await render(entry);
+
+// demos are plain files in src/demos — add a file, reference it by name
+const demos = import.meta.glob<{ default: any }>("../demos/*.astro");
+const demoLoader = demo ? demos[`../demos/${demo}.astro`] : undefined;
+const Demo = demoLoader ? (await demoLoader()).default : null;
+---
+
+<article class:list={["entry", status && `is-${status}`]} id={entry.id.split("/").pop()}>
+  <div class="meta">
+    <span class="n">{n}</span>
+    {status && <span class="status">[{status}]</span>}
+    <time datetime={date.toISOString().slice(0, 7)}>{stampMonth(date)}</time>
+  </div>
+
+  <div class="main">
+    <h2 class="display title">{title}</h2>
+    <p class="summary">{summary}</p>
+
+    {image && <img class="img" src={image} alt={imageAlt ?? ""} loading="lazy" decoding="async" />}
+
+    {Demo && (
+      <div class="demo">
+        <Demo />
+      </div>
+    )}
+
+    <div class="prose">
+      <Content />
+    </div>
+
+    {
+      links && links.length > 0 && (
+        <ul class="links">
+          {links.map((l) => (
+            <li>
+              <a href={l.href} target="_blank" rel="noopener">
+                {l.label} <span aria-hidden="true">↗</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+  </div>
+</article>
+
+<style>
+  .entry {
+    display: grid;
+    gap: 1rem;
+    padding-block: 2rem 2.5rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .entry:nth-child(even) {
+    margin-left: var(--shift);
+  }
+
+  .meta {
+    display: flex;
+    gap: 1.25rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .status {
+    color: var(--dim-3);
+  }
+
+  .title {
+    font-size: clamp(1.75rem, 6vw, 3rem);
+    font-weight: 600;
+    line-height: 0.95;
+    letter-spacing: var(--track-tight);
+    text-transform: lowercase;
+  }
+
+  .summary {
+    margin-top: 0.75rem;
+    color: var(--dim-1);
+    max-width: 52ch;
+  }
+
+  /* dithered images look best 1:1 — never upscale, only shrink when the screen forces it */
+  .img {
+    margin-top: 1.5rem;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    image-rendering: pixelated;
+    border: 1px solid var(--seam-soft);
+  }
+
+  .demo {
+    margin-top: 1.5rem;
+  }
+
+  .prose {
+    margin-top: 1rem;
+    max-width: 65ch;
+  }
+  .prose:empty {
+    display: none;
+  }
+
+  .links {
+    margin-top: 1.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    font-size: var(--fs-small);
+  }
+  .links a {
+    color: var(--text);
+    border-bottom: 1px solid var(--dim-4);
+    transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .links a:hover {
+    color: var(--bone);
+    border-color: var(--bone);
+  }
+
+  .is-planned .title,
+  .is-archived .title {
+    color: var(--dim-3);
+  }
+
+  @media (min-width: 960px) {
+    .entry {
+      grid-template-columns: var(--offset) minmax(0, 1fr);
+      gap: 0;
+    }
+    .entry:nth-child(even) {
+      /* the row is --shift narrower, so % resolves smaller — compensate to hit the page offset */
+      grid-template-columns: calc(var(--offset) - (1 - var(--offset-k)) * var(--shift)) minmax(0, 1fr);
+    }
+    .meta {
+      flex-direction: column;
+      gap: 0.35rem;
+      padding-top: 0.5rem;
+    }
+  }
+</style>

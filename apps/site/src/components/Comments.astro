@@ -1,0 +1,45 @@
+---
+import Label from "@edwrdq/ui/Label.astro";
+import CommentList from "./CommentList.astro";
+import MessageForm from "./MessageForm.astro";
+
+interface Props {
+  slug: string;
+}
+
+const { slug } = Astro.props;
+---
+
+<section class="comments" id="comments" aria-labelledby="comments-label">
+  <Label id="comments-label">COMMENTS</Label>
+
+  <div class="list">
+    <CommentList server:defer slug={slug}>
+      <p slot="fallback" class="loading">loading<span class="cursor">_</span></p>
+    </CommentList>
+  </div>
+
+  <h2 class="display title">say something<span class="acid">.</span></h2>
+  <MessageForm endpoint="/api/comments" id="cm" slug={slug} placeholder="type whatever" />
+</section>
+
+<style>
+  .list {
+    margin-top: 1.75rem;
+  }
+  .loading {
+    color: var(--dim-2);
+    padding-block: 1.25rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .title {
+    margin-block: 3rem 1.5rem;
+    font-size: clamp(1.75rem, 5vw, 2.5rem);
+    font-weight: 600;
+    line-height: 1;
+    text-transform: lowercase;
+  }
+  .acid {
+    color: var(--acid);
+  }
+</style>

@@ -1,0 +1,64 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // worker name must match the one bound to admin.edwrdq.com
+  "name": "admin",
+  "compatibility_date": "2026-11-17",
+  "observability": { "enabled": true },
+
+  // our own entry: checks the Access JWT, then hands off to astro
+  "main": "src/worker.ts",
+  // every request (static assets too) goes through the worker first
+  "assets": { "binding": "ASSETS", "run_worker_first": true },
+
+  // only reachable through admin.edwrdq.com (behind Cloudflare Access)
+  "workers_dev": false,
+  "preview_urls": false,
+
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "https://billowing-flower-04bd.cloudflareaccess.com",
+    "ACCESS_AUD": "d24455b028d5097c643221e379644f00649af164ae75a5885568277a097d14bd",
+    "DISCORD_USER_ID": "1535485306311286836"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "edwrdq-db",
+      "database_id": "e81b146e-624f-4d9a-912c-f1fb895cd7a3",
+      "migrations_dir": "../../migrations"
+    }
+  ],
+  "kv_namespaces": [{ "binding": "STATS", "id": "0886482697404b71b44afea34f41377f" }],
+  "r2_buckets": [
+    { "binding": "DROP", "bucket_name": "edwrdq-drop" },
+    { "binding": "MEDIA", "bucket_name": "edwrdq-media" }
+  ],
+  // secrets: GITHUB_TOKEN (optional, same token as the site — used by the stats refresh button)
+  //          HACKATIME_API_KEY (optional, same key as the site — used by the now tool)
+
+  "env": {
+    // local `astro dev` only (selected in astro.config.mjs). worker-first would
+    // swallow vite's dev-server requests, and there's no Access in front locally.
+    "dev": {
+      "assets": { "binding": "ASSETS", "run_worker_first": false },
+      "kv_namespaces": [{ "binding": "STATS", "id": "0886482697404b71b44afea34f41377f" }],
+      "r2_buckets": [
+    { "binding": "DROP", "bucket_name": "edwrdq-drop" },
+    { "binding": "MEDIA", "bucket_name": "edwrdq-media" }
+  ],
+      "vars": {
+        "ACCESS_TEAM_DOMAIN": "https://billowing-flower-04bd.cloudflareaccess.com",
+        "ACCESS_AUD": "d24455b028d5097c643221e379644f00649af164ae75a5885568277a097d14bd",
+        "DISCORD_USER_ID": "1535485306311286836"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "edwrdq-db",
+          "database_id": "e81b146e-624f-4d9a-912c-f1fb895cd7a3",
+          "migrations_dir": "../../migrations"
+        }
+      ]
+    }
+  }
+}

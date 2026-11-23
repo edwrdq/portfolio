@@ -1,0 +1,78 @@
+---
+// /share — two ways in:
+//   POST: the pwa web share target (android "share → edwrdq admin"). saves immediately.
+//   GET:  the laptop bookmarklet / ios shortcut. shows the link with one SAVE button, so a
+//         random page can't silently add things just by linking here.
+import Admin from "../layouts/Admin.astro";
+import { deviceFromUA } from "../tools/later/shared";
+import { saveItem } from "../tools/later/save";
+
+const req = Astro.request;
+const fromDevice = deviceFromUA(req.headers.get("user-agent"));
+let error = "";
+
+if (req.method === "POST") {
+  // only same-origin forms or the os share sheet ("none"), never a cross-site post
+  const site = req.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin" && site !== "none") return new Response("forbidden", { status: 403 });
+  const f = await req.formData().catch(() => null);
+  const url = String(f?.get("url") ?? "").trim();
+  const text = String(f?.get("text") ?? "").trim();
+  const title = String(f?.get("title") ?? "").trim();
+  const input = url || text || title;
+  const from = f?.get("from") === "laptop" || f?.get("from") === "phone" ? (f.get("from") as "phone" | "laptop") : fromDevice;
+  if (input) {
+    try {
+      const item = await saveItem(input, from, url ? title || null : null, Astro.locals.cfContext);
+      return Astro.redirect(`/later?saved=${item.id}`, 303);
+    } catch (e) {
+      error = typeof e === "string" ? e : "couldn't save that.";
+    }
+  } else error = "nothing was shared.";
+}
+
+const q = Astro.url.searchParams;
+const pUrl = q.get("url") ?? "";
+const pTitle = q.get("title") ?? "";
+const pText = q.get("text") ?? "";
+---
+
+<Admin title="share">
+  <form method="post" class="share">
+    {error && <p class="err">{error}</p>}
+    {pTitle && <p class="t">{pTitle}</p>}
+    <label class="sr-only" for="s-url">link</label>
+    <input id="s-url" class="field" name="url" value={pUrl} placeholder="https://…" inputmode="url" />
+    <input type="hidden" name="title" value={pTitle} />
+    <label class="sr-only" for="s-text">text</label>
+    <textarea id="s-text" class="field" name="text" rows="3" placeholder="or text">{pText}</textarea>
+    <button type="submit" class="btn btn-primary go" autofocus>SAVE TO LATER</button>
+    <p class="hint">from {fromDevice}</p>
+  </form>
+</Admin>
+
+<style>
+  .share {
+    display: grid;
+    gap: 0.75rem;
+    max-width: 30rem;
+  }
+  .t {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.25rem;
+    color: var(--bone);
+    overflow-wrap: anywhere;
+  }
+  .go {
+    height: 3.25rem;
+  }
+  .hint {
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-3);
+  }
+  .err {
+    color: var(--bone);
+  }
+</style>

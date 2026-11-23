@@ -1,0 +1,110 @@
+---
+import { env } from "cloudflare:workers";
+import { ago, MAX_AGE_MS, readStats } from "@edwrdq/stats";
+
+const data = await readStats(env);
+const ageMs = data ? Date.now() - Date.parse(data.fetchedAt) : null;
+const errors = Object.entries(data?.errors ?? {});
+const sources = [
+  { k: "github", v: data?.github ? "ok" : "—", extra: data?.github?.calendar ? "with calendar" : "no token → no calendar" },
+  { k: "hackatime", v: "later", extra: "" },
+];
+---
+
+<div class="stats" data-stats>
+  <dl class="lines">
+    <div class="line">
+      <dt>cached</dt>
+      <dd data-when>{data ? `${ago(data.fetchedAt)} (${data.fetchedAt})` : "never"}</dd>
+    </div>
+    <div class="line">
+      <dt>state</dt>
+      <dd data-state>{ageMs === null ? "empty" : ageMs > MAX_AGE_MS ? "stale — next visitor refreshes it" : "fresh"}</dd>
+    </div>
+    {
+      sources.map((s) => (
+        <div class="line">
+          <dt>{s.k}</dt>
+          <dd>
+            {s.v} <span class="dimmer">{s.extra}</span>
+          </dd>
+        </div>
+      ))
+    }
+    {
+      errors.map(([k, v]) => (
+        <div class="line err">
+          <dt>error · {k}</dt>
+          <dd>{v}</dd>
+        </div>
+      ))
+    }
+  </dl>
+
+  <div class="bar">
+    <button type="button" class="btn btn-primary" data-refresh>REFRESH NOW</button>
+    <span class="status" data-status aria-live="polite"></span>
+  </div>
+
+  <pre class="json" data-json>{JSON.stringify(data, null, 2)}</pre>
+</div>
+
+<style>
+  .lines {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .line {
+    display: grid;
+    grid-template-columns: 10rem minmax(0, 1fr);
+    gap: 1rem;
+    padding-block: 0.6rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  dt {
+    color: var(--dim-2);
+  }
+  .err dd {
+    color: var(--bone);
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-block: 1.5rem;
+  }
+  .status {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .json {
+    font-size: var(--fs-small);
+    line-height: 1.55;
+    color: var(--dim-1);
+    background: var(--surface);
+    border: 1px solid var(--seam-soft);
+    padding: 1rem;
+    overflow-x: auto;
+    max-height: 60vh;
+  }
+</style>
+
+<script>
+  const root = document.querySelector<HTMLElement>("[data-stats]");
+  if (root) {
+    const btn = root.querySelector<HTMLButtonElement>("[data-refresh]")!;
+    const status = root.querySelector<HTMLElement>("[data-status]")!;
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      status.textContent = "fetching…";
+      try {
+        const res = await fetch("/api/stats/refresh", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        const out = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!res.ok || !out.ok) throw new Error(out.error ?? `failed (${res.status})`);
+        location.reload();
+      } catch (e) {
+        status.textContent = e instanceof Error ? e.message : "failed";
+        btn.disabled = false;
+      }
+    });
+  }
+</script>

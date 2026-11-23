@@ -1,0 +1,502 @@
+---
+import { env } from "cloudflare:workers";
+
+const { results } = await env.DB.prepare("SELECT id, name, grid FROM pixel_icons ORDER BY updated_at DESC, id DESC").all<{ id: number; name: string; grid: string }>();
+const data = JSON.stringify(results).replace(/</g, "\\u003c");
+---
+
+<div class="px" data-px>
+  <div class="work">
+    <div class="board">
+      <div class="cells" data-cells role="grid" aria-label="8 by 8 pixel grid"></div>
+      <div class="toolrow">
+        <button type="button" class="btn sm" data-t="eraser" aria-pressed="false" title="eraser (or hold shift)">ERASER</button>
+        <button type="button" class="btn sm" data-t="undo" title="ctrl+z">UNDO</button>
+        <button type="button" class="btn sm" data-t="redo" title="ctrl+shift+z">REDO</button>
+        <button type="button" class="btn sm" data-t="clear">CLEAR</button>
+      </div>
+      <div class="toolrow">
+        <button type="button" class="btn sm" data-t="invert">INVERT</button>
+        <button type="button" class="btn sm" data-t="flipH" aria-label="flip horizontal">FLIP ↔</button>
+        <button type="button" class="btn sm" data-t="flipV" aria-label="flip vertical">FLIP ↕</button>
+        <button type="button" class="btn sm" data-t="rotate" aria-label="rotate 90 degrees">ROT 90°</button>
+      </div>
+      <div class="toolrow">
+        <span class="hint">SHIFT</span>
+        <button type="button" class="btn sm sq" data-t="up" aria-label="shift up">↑</button>
+        <button type="button" class="btn sm sq" data-t="down" aria-label="shift down">↓</button>
+        <button type="button" class="btn sm sq" data-t="left" aria-label="shift left">←</button>
+        <button type="button" class="btn sm sq" data-t="right" aria-label="shift right">→</button>
+      </div>
+    </div>
+
+    <div class="side">
+      <p class="label">PREVIEW</p>
+      <div class="prev bone" data-prev="bone"></div>
+      <div class="prev acid" data-prev="acid"></div>
+
+      <form class="savebox" data-save>
+        <input class="field" name="name" placeholder="name" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" required />
+        <button type="submit" class="btn btn-primary">SAVE</button>
+      </form>
+      <p class="status" data-status aria-live="polite"></p>
+    </div>
+  </div>
+
+  <section class="out">
+    <div class="outbox">
+      <div class="outhead"><p class="label">GRID</p><button type="button" class="btn sm" data-copy="rows">COPY</button></div>
+      <pre data-out="rows"></pre>
+    </div>
+    <div class="outbox">
+      <div class="outhead"><p class="label">SVG</p><button type="button" class="btn sm" data-copy="svg">COPY</button></div>
+      <pre data-out="svg"></pre>
+    </div>
+    <div class="outhead">
+      <p class="label">PNG</p>
+      <div class="toolrow">
+        {[16, 32, 64, 512].map((s) => <button type="button" class="btn sm" data-png={s}>{s}</button>)}
+      </div>
+    </div>
+    <details class="imp">
+      <summary class="label">IMPORT FROM STRING</summary>
+      <textarea class="field" rows="4" placeholder='["........", "......##", …]  or 8 lines of . and #' data-import></textarea>
+      <button type="button" class="btn sm" data-t="import">LOAD</button>
+    </details>
+  </section>
+
+  <section class="lib">
+    <p class="label">LIBRARY</p>
+    <ul class="thumbs" data-lib></ul>
+    <p class="label presets-label">PRESETS — PACKAGES/UI (READ-ONLY)</p>
+    <ul class="thumbs" data-presets></ul>
+  </section>
+
+  <script type="application/json" data-json set:html={data} />
+</div>
+
+<style>
+  .px {
+    max-width: 60rem;
+  }
+  .work {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+  }
+  .board {
+    display: grid;
+    gap: 0.6rem;
+    flex: 0 1 26rem;
+    min-width: 0;
+  }
+  .cells {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    width: min(100%, 26rem);
+    aspect-ratio: 1;
+    border: 1px solid var(--seam);
+    touch-action: none; /* drag-paint on touch without scrolling */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .cells :global(.c) {
+    border: 1px solid var(--seam-soft);
+    background: var(--bg);
+  }
+  .cells :global(.c.on) {
+    background: var(--bone);
+    border-color: var(--bone);
+  }
+  .toolrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .btn.sm {
+    height: 2.75rem;
+    padding-inline: 0.75rem;
+  }
+  .btn.sq {
+    width: 2.75rem;
+    padding: 0;
+  }
+  .btn[aria-pressed="true"] {
+    border-color: var(--acid);
+    color: var(--acid);
+  }
+  .hint {
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-3);
+    margin-right: 0.25rem;
+  }
+
+  .side {
+    display: grid;
+    align-content: start;
+    gap: 0.75rem;
+    flex: 1 1 14rem;
+  }
+  .prev {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.25rem;
+    padding: 1rem;
+    border: 1px solid var(--seam);
+    background: var(--bg);
+  }
+  .prev.bone {
+    color: var(--bone);
+  }
+  .prev.acid {
+    color: var(--acid);
+  }
+  .savebox {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+  .savebox .field {
+    flex: 1;
+    min-width: 0;
+  }
+  .status {
+    font-size: var(--fs-small);
+    color: var(--text);
+    min-height: 1.2em;
+  }
+
+  .out {
+    display: grid;
+    gap: 1rem;
+    margin-top: 2.5rem;
+  }
+  .outhead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .outbox pre {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--seam-soft);
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .imp {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .imp summary {
+    cursor: pointer;
+    min-height: 2.75rem;
+    display: flex;
+    align-items: center;
+  }
+  .imp[open] {
+    display: grid;
+  }
+  .imp textarea {
+    margin-block: 0.5rem;
+  }
+
+  .lib {
+    margin-top: 2.5rem;
+  }
+  .presets-label {
+    margin-top: 2rem;
+  }
+  .thumbs {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+  .thumbs:empty::before {
+    content: "nothing saved yet.";
+    color: var(--dim-3);
+    font-size: var(--fs-small);
+  }
+  .thumbs :global(li) {
+    display: grid;
+    gap: 0.4rem;
+    padding: 0.6rem;
+    border: 1px solid var(--seam-soft);
+  }
+  .thumbs :global(.load) {
+    display: grid;
+    justify-items: start;
+    gap: 0.5rem;
+    color: var(--bone);
+    text-align: left;
+    min-height: 2.75rem;
+  }
+  .thumbs :global(.load:hover) {
+    color: var(--acid);
+  }
+  .thumbs :global(.nm) {
+    font-size: var(--fs-small);
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+  .thumbs :global(.acts) {
+    display: flex;
+    gap: 0.3rem;
+  }
+  .thumbs :global(.acts button) {
+    flex: 1;
+    height: 2.25rem;
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    border: 1px solid var(--seam);
+    color: var(--dim-1);
+  }
+  .thumbs :global(.acts button:hover) {
+    color: var(--bone);
+  }
+</style>
+
+<script>
+  import { icons } from "@edwrdq/ui/icons";
+  import { N, empty, flipH, flipV, fromRows, invert, parseGrid, rotate, shift, svg, toRows, type Grid } from "./grid";
+
+  type Saved = { id: number; name: string; grid: string };
+  const root = document.querySelector<HTMLElement>("[data-px]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    let saved: Saved[] = JSON.parse($("[data-json]").textContent || "[]");
+    let grid: Grid = empty();
+    const past: Grid[] = [];
+    const future: Grid[] = [];
+    let eraser = false;
+    const status = $("[data-status]");
+    const nameIn = $<HTMLInputElement>('[name="name"]');
+
+    // ---- cells
+    const cellsBox = $("[data-cells]");
+    const cells = Array.from({ length: N * N }, (_, i) => {
+      const c = document.createElement("div");
+      c.className = "c";
+      c.dataset.i = String(i);
+      c.setAttribute("role", "gridcell");
+      cellsBox.append(c);
+      return c;
+    });
+
+    const commit = (next: Grid) => {
+      past.push(grid);
+      if (past.length > 200) past.shift();
+      future.length = 0;
+      grid = next;
+      render();
+    };
+
+    function render() {
+      cells.forEach((c, i) => c.classList.toggle("on", grid[i]));
+      const s16 = svg(grid, 16), s32 = svg(grid, 32), s64 = svg(grid, 64);
+      for (const box of root!.querySelectorAll<HTMLElement>("[data-prev]")) box.innerHTML = s16 + s32 + s64; // our own svg, no user text
+      $("[data-out='rows']").textContent = JSON.stringify(toRows(grid)).replace(/","/g, '", "');
+      $("[data-out='svg']").textContent = svg(grid, 16);
+    }
+
+    // paint: pointerdown picks a value (toggle, or erase), drag keeps painting that value
+    let painting: boolean | null = null;
+    let before: Grid | null = null;
+    const paintAt = (x: number, y: number) => {
+      const el = document.elementFromPoint(x, y) as HTMLElement | null;
+      if (!el?.dataset.i || painting === null) return;
+      const i = Number(el.dataset.i);
+      if (grid[i] !== painting) {
+        grid = [...grid];
+        grid[i] = painting;
+        render();
+      }
+    };
+    cellsBox.addEventListener("pointerdown", (e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>("[data-i]");
+      if (!el) return;
+      e.preventDefault();
+      cellsBox.setPointerCapture(e.pointerId);
+      before = grid;
+      painting = eraser || e.shiftKey ? false : !grid[Number(el.dataset.i)];
+      paintAt(e.clientX, e.clientY);
+    });
+    cellsBox.addEventListener("pointermove", (e) => painting !== null && paintAt(e.clientX, e.clientY));
+    const end = () => {
+      if (painting !== null && before && before.some((b, i) => b !== grid[i])) {
+        past.push(before);
+        future.length = 0;
+      }
+      painting = null;
+      before = null;
+    };
+    cellsBox.addEventListener("pointerup", end);
+    cellsBox.addEventListener("pointercancel", end);
+
+    // ---- tools
+    const tools: Record<string, () => void> = {
+      clear: () => commit(empty()),
+      invert: () => commit(invert(grid)),
+      flipH: () => commit(flipH(grid)),
+      flipV: () => commit(flipV(grid)),
+      rotate: () => commit(rotate(grid)),
+      up: () => commit(shift(grid, 0, -1)),
+      down: () => commit(shift(grid, 0, 1)),
+      left: () => commit(shift(grid, -1, 0)),
+      right: () => commit(shift(grid, 1, 0)),
+      undo: () => {
+        if (!past.length) return;
+        future.push(grid);
+        grid = past.pop()!;
+        render();
+      },
+      redo: () => {
+        if (!future.length) return;
+        past.push(grid);
+        grid = future.pop()!;
+        render();
+      },
+      eraser: () => {
+        eraser = !eraser;
+        $("[data-t='eraser']").setAttribute("aria-pressed", String(eraser));
+      },
+      import: () => {
+        const g = parseGrid($<HTMLTextAreaElement>("[data-import]").value);
+        if (!g) return void (status.textContent = "couldn't find 8 rows of 8 . / # characters.");
+        commit(g);
+        status.textContent = "loaded.";
+      },
+    };
+    root.addEventListener("click", (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>("[data-t]")?.dataset.t;
+      if (t && tools[t]) tools[t]();
+    });
+    document.addEventListener("keydown", (e) => {
+      if ((e.target as HTMLElement).matches("input, textarea")) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        (e.shiftKey ? tools.redo : tools.undo)();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        tools.redo();
+      }
+    });
+
+    // ---- outputs
+    root.addEventListener("click", async (e) => {
+      const t = e.target as HTMLElement;
+      const copy = t.closest<HTMLButtonElement>("[data-copy]");
+      if (copy) {
+        await navigator.clipboard?.writeText($(`[data-out='${copy.dataset.copy}']`).textContent ?? "");
+        copy.textContent = "COPIED";
+        setTimeout(() => (copy.textContent = "COPY"), 900);
+        return;
+      }
+      const png = t.closest<HTMLButtonElement>("[data-png]");
+      if (png) {
+        const size = Number(png.dataset.png);
+        const c = document.createElement("canvas");
+        c.width = c.height = size;
+        const ctx = c.getContext("2d")!;
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--bone").trim();
+        const px = size / N;
+        grid.forEach((on, i) => on && ctx.fillRect((i % N) * px, Math.floor(i / N) * px, px, px));
+        c.toBlob((b) => {
+          if (!b) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(b);
+          a.download = `${nameIn.value.trim() || "icon"}-${size}.png`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        }, "image/png");
+      }
+    });
+
+    // ---- library
+    async function api(path: string, payload: Record<string, unknown>) {
+      const res = await fetch(`/api/pixel/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      const out = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !out.ok) throw Object.assign(new Error(out.error ?? `failed (${res.status})`), { exists: out.exists });
+      return out;
+    }
+
+    const thumb = (name: string, g: Grid, extra?: HTMLElement) => {
+      const li = document.createElement("li");
+      const load = document.createElement("button");
+      load.type = "button";
+      load.className = "load";
+      load.innerHTML = svg(g, 32); // generated svg
+      const nm = Object.assign(document.createElement("span"), { className: "nm", textContent: name });
+      load.append(nm);
+      load.addEventListener("click", () => {
+        commit(g);
+        nameIn.value = name;
+        status.textContent = `loaded ${name}.`;
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      li.append(load);
+      if (extra) li.append(extra);
+      return li;
+    };
+
+    function renderLib() {
+      $("[data-lib]").replaceChildren(
+        ...saved.map((s) => {
+          const acts = document.createElement("div");
+          acts.className = "acts";
+          const dup = Object.assign(document.createElement("button"), { type: "button", textContent: "DUP" });
+          const del = Object.assign(document.createElement("button"), { type: "button", textContent: "DEL" });
+          dup.addEventListener("click", async () => {
+            try {
+              const { icon } = await api("duplicate", { id: s.id });
+              saved.unshift(icon);
+              renderLib();
+            } catch (e) {
+              status.textContent = (e as Error).message;
+            }
+          });
+          del.addEventListener("click", async () => {
+            if (!confirm(`delete ${s.name}?`)) return;
+            try {
+              await api("delete", { id: s.id });
+              saved = saved.filter((x) => x.id !== s.id);
+              renderLib();
+            } catch (e) {
+              status.textContent = (e as Error).message;
+            }
+          });
+          acts.append(dup, del);
+          return thumb(s.name, fromRows(s.grid.split("\n")), acts);
+        }),
+      );
+    }
+    $("[data-presets]").replaceChildren(...Object.entries(icons).map(([name, rows]) => thumb(name, fromRows(rows))));
+
+    $("[data-save]").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = nameIn.value.trim().toLowerCase();
+      const go = async (overwrite: boolean) => {
+        const { icon } = await api("save", { name, rows: toRows(grid), overwrite });
+        saved = [icon, ...saved.filter((x) => x.name !== icon.name)];
+        renderLib();
+        status.textContent = `saved ${icon.name}.`;
+      };
+      try {
+        await go(false);
+      } catch (err) {
+        if ((err as any).exists && confirm(`"${name}" exists. overwrite?`)) await go(true).catch((e2) => (status.textContent = e2.message));
+        else status.textContent = (err as Error).message;
+      }
+    });
+
+    render();
+    renderLib();
+  }
+</script>

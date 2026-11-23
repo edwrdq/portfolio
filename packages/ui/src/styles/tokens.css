@@ -1,0 +1,56 @@
+/* edwrdq design tokens. the only place colors live. */
+:root {
+  /* color */
+  --bg: #060606;
+  --surface: #0d0d0d;
+  --seam: #222222;
+  --seam-soft: #141414;
+  --bone: #d6d3cc;
+  --text: #dcd9d2;
+  --dim-1: #8a8a8a;
+  --dim-2: #5e5e5e;
+  --dim-3: #444444;
+  --dim-4: #3a3a3a;
+  --acid: #b8c43a;
+  --on-acid: #060606;
+
+  /* type */
+  --font-display: "Inter Tight Variable", "Inter Tight", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --fs-micro: 0.6875rem;  /* 11px labels */
+  --fs-small: 0.75rem;    /* 12px */
+  --fs-body: 0.8125rem;   /* 13px mono body */
+  --fs-read: 0.9375rem;   /* 15px long-form */
+
+  --track-label: 0.22em;
+  --track-display: -0.055em;
+  --track-tight: -0.035em;
+
+  /* space */
+  --gutter: 16px;
+  --offset-k: 0.3;         /* secondary blocks start here (fraction of content width) */
+  --offset: calc(var(--offset-k) * 100%);
+  --shift: 16px;           /* alternating row shift */
+  --section: 6rem;         /* vertical rhythm between sections */
+  --seam-gap: 4px;
+
+  /* motion */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --fast: 120ms;
+}
+
+@media (min-width: 720px) {
+  :root {
+    --gutter: 32px;
+    --offset-k: 0.4;
+    --section: 8rem;
+  }
+}
+
+@media (min-width: 1200px) {
+  :root {
+    --gutter: 48px;
+    --section: 10rem;
+  }
+}

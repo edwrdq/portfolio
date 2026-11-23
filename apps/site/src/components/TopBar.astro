@@ -1,0 +1,29 @@
+---
+import Seam from "@edwrdq/ui/Seam.astro";
+---
+
+<header class="topbar">
+  <div class="bar gutter">
+    <a href="/" class="label label-home">EDWRDQ</a>
+    <span class="label label-season">FW—26</span>
+  </div>
+  <Seam />
+</header>
+
+<style>
+  .topbar {
+    view-transition-name: topbar;
+  }
+  .bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 3.25rem;
+  }
+  .label-home {
+    color: var(--text);
+  }
+  .label-season {
+    color: var(--acid);
+  }
+</style>

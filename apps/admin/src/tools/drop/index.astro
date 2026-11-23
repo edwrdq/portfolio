@@ -1,0 +1,630 @@
+---
+import { env } from "cloudflare:workers";
+import { bytes, dropState, timeLeft, type Drop } from "@edwrdq/drop";
+import { ago } from "../../lib/http";
+
+type Row = Drop & { files: number; total: number };
+const { results: drops } = await env.DB.prepare(
+  `SELECT d.*, count(f.id) AS files, coalesce(sum(f.size), 0) AS total
+   FROM drops d LEFT JOIN drop_files f ON f.drop_token = d.token
+   GROUP BY d.token ORDER BY d.created_at DESC LIMIT 300`,
+).all<Row>();
+
+const live = drops.filter((d) => dropState(d) === "live");
+const dead = drops.filter((d) => dropState(d) !== "live");
+const BASE = "https://edwrdq.com/d/";
+---
+
+<div class="drop-tool" data-drop data-base={BASE}>
+  <!-- upload -->
+  <form class="up" data-up>
+    <label class="zone" data-zone>
+      <input type="file" multiple data-files class="sr-only" />
+      <span class="zone-big">drop files here</span>
+      <span class="zone-small">or tap to pick · any size</span>
+    </label>
+    <ul class="picked" data-picked></ul>
+
+    <div class="opts">
+      <div class="chips" role="radiogroup" aria-label="expires">
+        <span class="hint">EXPIRES</span>
+        <button type="button" class="chip" data-exp="3600" aria-pressed="false">1h</button>
+        <button type="button" class="chip" data-exp="86400" aria-pressed="true">24h</button>
+        <button type="button" class="chip" data-exp="604800" aria-pressed="false">7d</button>
+        <button type="button" class="chip" data-exp="2592000" aria-pressed="false">30d</button>
+        <button type="button" class="chip" data-exp="custom" aria-pressed="false">custom</button>
+        <input type="datetime-local" class="field when" data-when hidden />
+      </div>
+      <div class="two">
+        <label class="lbl">
+          <span class="hint">MAX DOWNLOADS</span>
+          <input class="field" type="number" min="1" step="1" inputmode="numeric" placeholder="unlimited" data-max />
+        </label>
+        <label class="lbl">
+          <span class="hint">PASSWORD</span>
+          <input class="field" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="none" data-pw />
+        </label>
+      </div>
+      <label class="lbl">
+        <span class="hint">NOTE</span>
+        <textarea class="field" rows="2" maxlength="1000" placeholder="optional — shown on the download page" data-note></textarea>
+      </label>
+    </div>
+
+    <div class="go">
+      <button type="submit" class="btn btn-primary" data-send>UPLOAD</button>
+      <button type="button" class="btn" data-cancel hidden>CANCEL</button>
+      <span class="status" data-status aria-live="polite"></span>
+    </div>
+    <div class="bar" data-bar hidden><span data-fill></span></div>
+    <div class="result" data-result hidden>
+      <a class="link" data-link target="_blank" rel="noopener"></a>
+      <button type="button" class="btn" data-copy-result>COPY</button>
+    </div>
+  </form>
+
+  <!-- live drops -->
+  <section class="sec">
+    <p class="label">{live.length} LIVE</p>
+    {
+      live.length === 0 ? (
+        <p class="empty dimmer">nothing out there.</p>
+      ) : (
+        <ol class="list">
+          {live.map((d) => (
+            <li class="d" data-token={d.token}>
+              <div class="d-top">
+                <span class="d-name">
+                  {d.files} {d.files === 1 ? "file" : "files"} · {bytes(d.total)}
+                </span>
+                <span class="d-left">{timeLeft(d.expires_at)}</span>
+              </div>
+              {d.note && <p class="d-note">{d.note}</p>}
+              <p class="d-meta">
+                <span>
+                  {d.download_count}
+                  {d.max_downloads ? ` / ${d.max_downloads}` : ""} downloads
+                </span>
+                {d.password_hash && <span>[password]</span>}
+                <span>{ago(d.created_at)}</span>
+                <span class="tok">…{d.token.slice(-6)}</span>
+              </p>
+              <div class="actions">
+                <button type="button" class="btn small" data-copy={BASE + d.token}>COPY LINK</button>
+                <button type="button" class="btn small" data-extend="86400">+24H</button>
+                <button type="button" class="btn small" data-extend="604800">+7D</button>
+                <button type="button" class="btn small del" data-revoke>REVOKE</button>
+              </div>
+              <p class="err" data-err aria-live="polite" />
+            </li>
+          ))}
+        </ol>
+      )
+    }
+  </section>
+
+  <!-- expired / used up / abandoned -->
+  <section class="sec">
+    <div class="purge-row">
+      <p class="label">{dead.length} EXPIRED, USED UP, OR UNFINISHED</p>
+      <button type="button" class="btn small" data-purge disabled={dead.length === 0}>PURGE EXPIRED</button>
+    </div>
+    {
+      dead.length > 0 && (
+        <ol class="list">
+          {dead.map((d) => (
+            <li class="d is-dead" data-token={d.token}>
+              <p class="d-meta">
+                <span>[{dropState(d)}]</span>
+                <span>
+                  {d.files} {d.files === 1 ? "file" : "files"} · {bytes(d.total)}
+                </span>
+                <span>
+                  {d.download_count}
+                  {d.max_downloads ? ` / ${d.max_downloads}` : ""} downloads
+                </span>
+                <span>{ago(d.created_at)}</span>
+              </p>
+            </li>
+          ))}
+        </ol>
+      )
+    }
+    <p class="hint purge-note">purge skips drops with a download still in progress (up to 6h). r2 deletes anything 31d old regardless.</p>
+  </section>
+</div>
+
+<style>
+  .drop-tool {
+    max-width: 46rem;
+  }
+  .up {
+    display: grid;
+    gap: 1rem;
+  }
+  .zone {
+    display: grid;
+    place-items: center;
+    gap: 0.4rem;
+    min-height: 9rem;
+    padding: 1.5rem;
+    border: 1px solid var(--seam);
+    background: var(--surface);
+    cursor: pointer;
+    text-align: center;
+    transition: border-color var(--fast) var(--ease);
+  }
+  .zone:hover,
+  .zone.over {
+    border-color: var(--acid);
+  }
+  .zone:focus-within {
+    border-color: var(--acid);
+  }
+  .zone-big {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.6rem;
+    letter-spacing: var(--track-tight);
+    color: var(--bone);
+  }
+  .zone-small {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .picked:empty {
+    display: none;
+  }
+  .picked {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .picked :global(li) {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding-block: 0.4rem;
+    border-top: 1px solid var(--seam-soft);
+    font-size: var(--fs-small);
+  }
+  .picked :global(.fn) {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .picked :global(.fs) {
+    color: var(--dim-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .picked :global(.fx) {
+    width: 2.75rem;
+    height: 2.75rem;
+    color: var(--dim-2);
+  }
+  .picked :global(.fx:hover) {
+    color: var(--bone);
+  }
+
+  .opts {
+    display: grid;
+    gap: 0.9rem;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .chip {
+    min-height: 2.75rem;
+  }
+  .hint {
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+    color: var(--dim-3);
+  }
+  .when {
+    width: auto;
+    color-scheme: dark;
+  }
+  .two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+  .lbl {
+    display: grid;
+    gap: 0.4rem;
+  }
+  .go {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .go .btn {
+    height: 2.9rem;
+  }
+  .status {
+    font-size: var(--fs-small);
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .bar {
+    height: 2px;
+    background: var(--seam);
+  }
+  .bar span {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--acid);
+    transition: width 200ms linear;
+  }
+  .result {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem;
+    border: 1px solid var(--seam);
+  }
+  .link {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--bone);
+  }
+
+  .sec {
+    margin-top: 3rem;
+  }
+  .sec > .label {
+    margin-bottom: 1rem;
+  }
+  .purge-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .purge-note {
+    margin-top: 0.75rem;
+    letter-spacing: 0.04em;
+  }
+  .list {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .d {
+    display: grid;
+    gap: 0.4rem;
+    padding-block: 0.95rem 1rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .d:nth-child(even) {
+    margin-left: var(--shift);
+  }
+  .d-top {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+  }
+  .d-name {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.2rem;
+    letter-spacing: var(--track-tight);
+    color: var(--bone);
+  }
+  .d-left {
+    margin-left: auto;
+    font-size: var(--fs-small);
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .d-note {
+    color: var(--dim-1);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .d-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.8rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .tok {
+    color: var(--dim-3);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+  }
+  .btn.small {
+    height: 2.75rem;
+    padding-inline: 0.85rem;
+  }
+  .del {
+    margin-left: auto;
+    color: var(--dim-2);
+  }
+  .err {
+    font-size: var(--fs-small);
+    color: var(--bone);
+  }
+  .err:empty {
+    display: none;
+  }
+  .empty {
+    padding-block: 1rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  @media (max-width: 560px) {
+    .two {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  import { bytes } from "@edwrdq/drop";
+
+  const root = document.querySelector<HTMLElement>("[data-drop]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const input = $<HTMLInputElement>("[data-files]");
+    const zone = $("[data-zone]");
+    const picked = $("[data-picked]");
+    const status = $("[data-status]");
+    const bar = $("[data-bar]");
+    const fill = $("[data-fill]");
+    const send = $<HTMLButtonElement>("[data-send]");
+    const cancelBtn = $<HTMLButtonElement>("[data-cancel]");
+    const result = $("[data-result]");
+    const when = $<HTMLInputElement>("[data-when]");
+    let files: File[] = [];
+
+    // ---------------- picking
+    const renderPicked = () => {
+      picked.replaceChildren(
+        ...files.map((f, i) => {
+          const li = document.createElement("li");
+          const n = Object.assign(document.createElement("span"), { className: "fn", textContent: f.name });
+          const s = Object.assign(document.createElement("span"), { className: "fs", textContent: bytes(f.size) });
+          const x = Object.assign(document.createElement("button"), { type: "button", className: "fx", textContent: "×" });
+          x.setAttribute("aria-label", `remove ${f.name}`);
+          x.addEventListener("click", () => {
+            files.splice(i, 1);
+            renderPicked();
+          });
+          li.append(n, s, x);
+          return li;
+        }),
+      );
+      const total = files.reduce((a, f) => a + f.size, 0);
+      status.textContent = files.length ? `${files.length} ${files.length === 1 ? "file" : "files"} · ${bytes(total)}` : "";
+    };
+    const add = (list: FileList | null) => {
+      if (!list) return;
+      for (const f of list) if (!files.some((x) => x.name === f.name && x.size === f.size)) files.push(f);
+      renderPicked();
+    };
+    input.addEventListener("change", () => {
+      add(input.files);
+      input.value = "";
+    });
+    for (const ev of ["dragenter", "dragover"]) zone.addEventListener(ev, (e) => (e.preventDefault(), zone.classList.add("over")));
+    for (const ev of ["dragleave", "drop"]) zone.addEventListener(ev, () => zone.classList.remove("over"));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      add((e as DragEvent).dataTransfer?.files ?? null);
+    });
+    // don't let a missed drop navigate away to the file
+    window.addEventListener("dragover", (e) => e.preventDefault());
+    window.addEventListener("drop", (e) => e.preventDefault());
+
+    root.addEventListener("click", (e) => {
+      const chip = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-exp]");
+      if (!chip) return;
+      root.querySelectorAll("[data-exp]").forEach((c) => c.setAttribute("aria-pressed", String(c === chip)));
+      when.hidden = chip.dataset.exp !== "custom";
+      if (!when.hidden) when.focus();
+    });
+
+    // ---------------- upload
+    const api = async (path: string, payload: Record<string, unknown>) => {
+      const res = await fetch(`/api/drop/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      const out = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !out.ok) throw new Error(out.error ?? `failed (${res.status})`);
+      return out;
+    };
+
+    let xhrs = new Set<XMLHttpRequest>();
+    let cancelled = false;
+    let currentToken: string | null = null;
+
+    const putPart = (token: string, idx: number, part: number, blob: Blob, onProgress: (n: number) => void) =>
+      new Promise<{ partNumber: number; etag: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhrs.add(xhr);
+        xhr.open("POST", `/api/drop/part?token=${encodeURIComponent(token)}&idx=${idx}&part=${part}`);
+        xhr.setRequestHeader("content-type", "application/octet-stream");
+        xhr.upload.onprogress = (e) => onProgress(e.loaded);
+        xhr.onload = () => {
+          xhrs.delete(xhr);
+          try {
+            const out = JSON.parse(xhr.responseText);
+            if (xhr.status === 200 && out.ok) resolve({ partNumber: out.partNumber, etag: out.etag });
+            else reject(new Error(out.error ?? `part ${part} failed (${xhr.status})`));
+          } catch {
+            reject(new Error(`part ${part} failed (${xhr.status})`));
+          }
+        };
+        xhr.onerror = () => (xhrs.delete(xhr), reject(new Error(`part ${part}: network error`)));
+        xhr.onabort = () => (xhrs.delete(xhr), reject(new Error("cancelled")));
+        xhr.send(blob);
+      });
+
+    async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
+      for (let i = 1; ; i++) {
+        try {
+          return await fn();
+        } catch (e) {
+          if (cancelled || i >= tries) throw e;
+          await new Promise((r) => setTimeout(r, 800 * i));
+        }
+      }
+    }
+
+    const expiresAt = () => {
+      const pick = root.querySelector<HTMLButtonElement>('[data-exp][aria-pressed="true"]')!.dataset.exp!;
+      if (pick === "custom") return when.value ? Math.floor(new Date(when.value).getTime() / 1000) : NaN;
+      return Math.floor(Date.now() / 1000) + Number(pick);
+    };
+
+    const setBusy = (busy: boolean) => {
+      send.disabled = busy;
+      cancelBtn.hidden = !busy;
+      input.disabled = busy;
+    };
+
+    root.querySelector("[data-up]")!.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!files.length) {
+        status.textContent = "add a file first.";
+        return;
+      }
+      const total = files.reduce((a, f) => a + f.size, 0);
+      const done = new Map<string, number>(); // "file:part" → bytes sent
+      const sent = () => [...done.values()].reduce((a, b) => a + b, 0);
+      const t0 = Date.now();
+      const report = () => {
+        const s = sent();
+        const pct = total ? Math.min(100, (s / total) * 100) : 100;
+        fill.style.width = `${pct}%`;
+        const rate = s / Math.max(1, (Date.now() - t0) / 1000);
+        status.textContent = `${pct.toFixed(0)}% · ${bytes(s)} / ${bytes(total)} · ${bytes(rate)}/s`;
+      };
+
+      cancelled = false;
+      setBusy(true);
+      result.hidden = true;
+      bar.hidden = false;
+      fill.style.width = "0";
+      status.textContent = "starting…";
+      try {
+        const max = $<HTMLInputElement>("[data-max]").value.trim();
+        const { token, partSize } = await api("create", {
+          files: files.map((f) => ({ name: f.name, size: f.size, type: f.type })),
+          expires_at: expiresAt(),
+          max_downloads: max ? Number(max) : null,
+          password: $<HTMLInputElement>("[data-pw]").value,
+          note: $<HTMLTextAreaElement>("[data-note]").value,
+        });
+        currentToken = token;
+
+        for (let idx = 0; idx < files.length; idx++) {
+          const f = files[idx];
+          await api("start", { token, idx });
+          const count = Math.max(1, Math.ceil(f.size / partSize));
+          const parts: { partNumber: number; etag: string }[] = [];
+          let next = 1;
+          // 3 parts in flight at a time
+          const worker = async () => {
+            while (next <= count && !cancelled) {
+              const n = next++;
+              const blob = f.slice((n - 1) * partSize, Math.min(f.size, n * partSize));
+              parts.push(
+                await withRetry(() =>
+                  putPart(token, idx, n, blob, (b) => {
+                    done.set(`${idx}:${n}`, b);
+                    report();
+                  }),
+                ),
+              );
+              done.set(`${idx}:${n}`, blob.size);
+              report();
+            }
+          };
+          await Promise.all([worker(), worker(), worker()]);
+          if (cancelled) throw new Error("cancelled");
+          await api("complete", { token, idx, parts });
+        }
+
+        const { url } = await api("finalize", { token });
+        currentToken = null;
+        fill.style.width = "100%";
+        status.textContent = `done · ${bytes(total)} in ${Math.round((Date.now() - t0) / 1000)}s`;
+        const link = $<HTMLAnchorElement>("[data-link]");
+        link.href = url;
+        link.textContent = url;
+        result.hidden = false;
+        await navigator.clipboard?.writeText(url).catch(() => {});
+        files = [];
+        renderPicked();
+        status.textContent = `done · ${bytes(total)} in ${Math.round((Date.now() - t0) / 1000)}s · link copied`;
+        setTimeout(() => location.reload(), 4000);
+      } catch (err) {
+        status.textContent = err instanceof Error ? err.message : "failed";
+        if (currentToken) await api("abort", { token: currentToken }).catch(() => {});
+        currentToken = null;
+        bar.hidden = true;
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    cancelBtn.addEventListener("click", () => {
+      cancelled = true;
+      for (const x of xhrs) x.abort();
+    });
+    window.addEventListener("beforeunload", (e) => {
+      if (currentToken) e.preventDefault();
+    });
+
+    $("[data-copy-result]").addEventListener("click", () => navigator.clipboard?.writeText($<HTMLAnchorElement>("[data-link]").href));
+
+    // ---------------- list actions
+    root.addEventListener("click", async (e) => {
+      const t = e.target as HTMLElement;
+      const li = t.closest<HTMLElement>("[data-token]");
+      const err = li?.querySelector<HTMLElement>("[data-err]");
+      try {
+        const copy = t.closest<HTMLButtonElement>("[data-copy]");
+        if (copy) {
+          await navigator.clipboard?.writeText(copy.dataset.copy!);
+          copy.textContent = "COPIED";
+          setTimeout(() => (copy.textContent = "COPY LINK"), 900);
+          return;
+        }
+        const ext = t.closest<HTMLButtonElement>("[data-extend]");
+        if (ext && li) {
+          const out = await api("extend", { token: li.dataset.token, seconds: Number(ext.dataset.extend) });
+          if (out.capped) alert("capped at 30 days after upload — r2 deletes files at 31 days.");
+          location.reload();
+          return;
+        }
+        if (t.closest("[data-revoke]") && li) {
+          if (!confirm("revoke this drop? the link dies and the files are deleted now.")) return;
+          await api("revoke", { token: li.dataset.token });
+          location.reload();
+          return;
+        }
+        if (t.closest("[data-purge]")) {
+          const out = await api("purge", {});
+          alert(`purged ${out.purged}.`);
+          location.reload();
+        }
+      } catch (ex) {
+        if (err) err.textContent = ex instanceof Error ? ex.message : "failed";
+        else alert(ex instanceof Error ? ex.message : "failed");
+      }
+    });
+  }
+</script>

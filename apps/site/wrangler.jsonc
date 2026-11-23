@@ -1,0 +1,60 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // worker name must match the one bound to the custom domain
+  "name": "site",
+  "compatibility_date": "2026-11-17",
+  "observability": { "enabled": true },
+
+  // our own entry: hands off to astro, then counts page views (visitor map)
+  "main": "src/worker.ts",
+  // pages run the worker first so views can be counted. static files skip it (no invocations).
+  // /img/* goes through the worker too: public/img first, then published images from r2.
+  "assets": {
+    "binding": "ASSETS",
+    "run_worker_first": ["/*", "!/_astro/*", "!/og/*", "!/favicon*", "!/apple-touch-icon.png", "!/rss.xml"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "edwrdq-db",
+      "database_id": "e81b146e-624f-4d9a-912c-f1fb895cd7a3",
+      "migrations_dir": "../../migrations"
+    }
+  ],
+  "kv_namespaces": [{ "binding": "STATS", "id": "0886482697404b71b44afea34f41377f" }],
+  // drop files. the site only reads + streams them — and deletes a drop's files once it has expired.
+  "r2_buckets": [
+    { "binding": "DROP", "bucket_name": "edwrdq-drop" },
+    { "binding": "MEDIA", "bucket_name": "edwrdq-media" }
+  ],
+  "vars": {
+    // discord user id for lanyard presence ("now" strip). empty = skip lanyard.
+    "DISCORD_USER_ID": "1535485306311286836"
+  },
+  // secrets (wrangler secret put): TURNSTILE_SECRET, IP_SALT,
+  // DISCORD_WEBHOOK_URL (optional), GITHUB_TOKEN (optional — enables the contribution calendar),
+  // HACKATIME_API_KEY (optional — "coding <project>" in the now strip)
+
+  "env": {
+    // local `astro dev` only (selected in astro.config.mjs). worker-first would swallow
+    // vite's dev-server requests. env sections don't inherit bindings, hence the repeats.
+    "dev": {
+      "assets": { "binding": "ASSETS", "run_worker_first": false },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "edwrdq-db",
+          "database_id": "e81b146e-624f-4d9a-912c-f1fb895cd7a3",
+          "migrations_dir": "../../migrations"
+        }
+      ],
+      "kv_namespaces": [{ "binding": "STATS", "id": "0886482697404b71b44afea34f41377f" }],
+      "r2_buckets": [
+    { "binding": "DROP", "bucket_name": "edwrdq-drop" },
+    { "binding": "MEDIA", "bucket_name": "edwrdq-media" }
+  ],
+      "vars": { "DISCORD_USER_ID": "1535485306311286836" }
+    }
+  }
+}

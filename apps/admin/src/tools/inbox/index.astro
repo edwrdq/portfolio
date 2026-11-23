@@ -1,0 +1,68 @@
+---
+import { env } from "cloudflare:workers";
+import { ago, when } from "../../lib/http";
+
+type Msg = { id: number; body: string; name: string | null; created_at: number };
+
+const { results: msgs } = await env.DB.prepare(
+  "SELECT id, body, name, created_at FROM messages WHERE status = 'approved' ORDER BY created_at DESC LIMIT 300",
+).all<Msg>();
+---
+
+<p class="label count">{msgs.length} APPROVED</p>
+
+{
+  msgs.length === 0 ? (
+    <p class="empty">nothing yet. approve some in the queue.</p>
+  ) : (
+    <ol class="msgs">
+      {msgs.map((m, i) => (
+        <li class="m">
+          <div class="meta">
+            <span>{String(msgs.length - i).padStart(3, "0")}</span>
+            <span class="who">{m.name ?? "anon"}</span>
+            <time title={when(m.created_at)}>{ago(m.created_at)}</time>
+          </div>
+          <p class="body">{m.body}</p>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+<style>
+  .count {
+    margin-bottom: 1.5rem;
+  }
+  .msgs {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .m {
+    padding-block: 1rem 1.1rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .m:nth-child(even) {
+    margin-left: var(--shift);
+  }
+  .meta {
+    display: flex;
+    gap: 1rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .who {
+    color: var(--dim-1);
+  }
+  .body {
+    margin-top: 0.5rem;
+    max-width: 75ch;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .empty {
+    color: var(--dim-2);
+    padding-block: 1.5rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+</style>

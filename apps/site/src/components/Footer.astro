@@ -1,0 +1,46 @@
+---
+import Seam from "@edwrdq/ui/Seam.astro";
+const year = new Date().getFullYear();
+---
+
+<footer class="footer">
+  <Seam />
+  <div class="bar gutter label">
+    <a href="https://github.com/edwrdq" rel="me noopener" target="_blank">GITHUB</a>
+    <span class="dot" aria-hidden="true">·</span>
+    <a href="https://www.chess.com/member/edwrdq" rel="me noopener" target="_blank">CHESS</a>
+    <span class="dot" aria-hidden="true">·</span>
+    <span>© {year} EDWRDQ</span>
+  </div>
+  <p class="privacy gutter">counts visits by city. no cookies, no ips, no tracking.</p>
+</footer>
+
+<style>
+  .footer {
+    margin-top: var(--section);
+  }
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 1rem;
+    min-height: 4.5rem;
+    padding-block: 1.5rem;
+  }
+  a {
+    color: var(--dim-1);
+    transition: color var(--fast) var(--ease);
+  }
+  a:hover {
+    color: var(--bone);
+  }
+  .dot {
+    color: var(--dim-4);
+  }
+  .privacy {
+    padding-bottom: 1.5rem;
+    margin-top: -0.75rem;
+    font-size: var(--fs-micro);
+    color: var(--dim-3);
+  }
+</style>

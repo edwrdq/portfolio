@@ -1,0 +1,96 @@
+---
+// server island: approved comments for a post, rendered fresh on each request.
+// text goes through astro's escaping — never set:html.
+import { env } from "cloudflare:workers";
+import { stamp } from "../lib/content";
+
+interface Props {
+  slug: string;
+}
+
+type Row = { id: number; body: string; name: string | null; reply: string | null; created_at: number };
+
+const { slug } = Astro.props;
+let comments: Row[] = [];
+let failed = false;
+try {
+  const { results } = await env.DB.prepare(
+    "SELECT id, body, name, reply, created_at FROM comments WHERE slug = ? AND status = 'approved' ORDER BY created_at ASC LIMIT 500",
+  )
+    .bind(slug)
+    .all<Row>();
+  comments = results;
+} catch (e) {
+  console.error(e);
+  failed = true;
+}
+---
+
+{
+  failed ? (
+    <p class="none">comments didn't load. refresh?</p>
+  ) : comments.length === 0 ? (
+    <p class="none">no comments yet. be first.</p>
+  ) : (
+    <ol class="list">
+      {comments.map((c, i) => (
+        <li class="c" id={`c${c.id}`}>
+          <div class="meta">
+            <span class="n">{String(i + 1).padStart(3, "0")}</span>
+            <span class="who">{c.name ?? "anon"}</span>
+            <time datetime={new Date(c.created_at * 1000).toISOString()}>{stamp(new Date(c.created_at * 1000))}</time>
+          </div>
+          <p class="body">{c.body}</p>
+          {c.reply && (
+            <div class="reply">
+              <span class="who">eddy</span>
+              <p class="body">{c.reply}</p>
+            </div>
+          )}
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+<style>
+  .none {
+    color: var(--dim-2);
+    padding-block: 1.25rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .list {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .c {
+    padding-block: 1.25rem 1.4rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .c:nth-child(even) {
+    margin-left: var(--shift);
+  }
+  .meta {
+    display: flex;
+    gap: 1rem;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .who {
+    color: var(--dim-1);
+  }
+  .body {
+    margin-top: 0.5rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .reply {
+    margin-top: 1rem;
+    padding-left: 1rem;
+    border-left: 1px solid var(--seam);
+  }
+  .reply .who {
+    font-size: var(--fs-small);
+    color: var(--bone);
+  }
+</style>

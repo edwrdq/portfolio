@@ -1,0 +1,16 @@
+---
+import Admin from "../layouts/Admin.astro";
+import { getTool, pages, tools } from "../lib/tools";
+
+const slug = Astro.params.tool!;
+const tool = getTool(slug);
+const load = pages[`../tools/${slug}/index.astro`];
+if (!tool || !load) return Astro.rewrite("/404");
+
+const Tool = (await load()).default;
+const n = String(tools.indexOf(tool) + 1).padStart(3, "0");
+---
+
+<Admin title={tool.name} n={n}>
+  <Tool />
+</Admin>
