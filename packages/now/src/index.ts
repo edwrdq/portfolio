@@ -38,7 +38,7 @@ export type Music = {
   track: string;
   artist: string | null;
   url: string | null;
-  /** remote album art url. never shown raw — the site serves it to a dithering canvas */
+  /** remote album art url. never shown raw — the site serves it to a pixelating canvas */
   art: string | null;
   source: "cider" | "spotify" | "manual";
 };

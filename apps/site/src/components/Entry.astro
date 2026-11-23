@@ -10,7 +10,7 @@ interface Props {
 }
 
 const { entry, n } = Astro.props;
-const { title, date, summary, status, links, image, imageAlt, demo } = entry.data;
+const { title, date, when, summary, status, links, image, imageAlt, demo } = entry.data;
 const { Content } = await render(entry);
 
 // demos are plain files in src/demos — add a file, reference it by name
@@ -23,12 +23,12 @@ const Demo = demoLoader ? (await demoLoader()).default : null;
   <div class="meta">
     <span class="n">{n}</span>
     {status && <span class="status">[{status}]</span>}
-    <time datetime={date.toISOString().slice(0, 7)}>{stampMonth(date)}</time>
+    {when ? <span class="when">{when}</span> : <time datetime={date.toISOString().slice(0, 7)}>{stampMonth(date)}</time>}
   </div>
 
   <div class="main">
     <h2 class="display title">{title}</h2>
-    <p class="summary">{summary}</p>
+    {summary && <p class="summary">{summary}</p>}
 
     {image && <img class="img" src={image} alt={imageAlt ?? ""} loading="lazy" decoding="async" />}
 

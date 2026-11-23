@@ -1,6 +1,6 @@
 ---
 // "currently" strip. filled client-side from /api/now and refreshed every 30s.
-// all text goes in via textContent. album art is only ever drawn dithered.
+// all text goes in via textContent. album art is redrawn as a 12×12 pixel grid, never shown raw.
 import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
 ---
 
@@ -11,7 +11,7 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
     <span class="ago" data-ago></span>
   </p>
   <p class="l2" data-music hidden>
-    <canvas class="art" data-art width="24" height="24" hidden aria-hidden="true"></canvas>
+    <canvas class="art" data-art width="12" height="12" hidden aria-hidden="true"></canvas>
     <span class="note" aria-hidden="true"><PixelIcon name="note" size={12} /></span>
     <a class="trk" data-trk target="_blank" rel="noopener"></a>
   </p>
@@ -119,42 +119,30 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
       return `${Math.round(s / 86400)}d ago`;
     };
 
-    // atkinson dither into the 24×24 canvas, bone on black (colors from the tokens)
-    const dither = (src: string) =>
+    // pixelate: average the cover down to a 12×12 grid of real colors; css scales it to 24px with hard edges
+    const pixelate = (src: string) =>
       new Promise<void>((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
-          const w = canvas.width;
-          const h = canvas.height;
-          const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-          ctx.drawImage(img, 0, 0, w, h);
-          const d = ctx.getImageData(0, 0, w, h);
-          const g = new Float32Array(w * h);
-          for (let i = 0; i < w * h; i++) g[i] = 0.299 * d.data[i * 4] + 0.587 * d.data[i * 4 + 1] + 0.114 * d.data[i * 4 + 2];
-          // stretch contrast so tiny art still has range
-          let lo = 255, hi = 0;
-          for (const v of g) (lo = Math.min(lo, v)), (hi = Math.max(hi, v));
-          const span = Math.max(1, hi - lo);
-          for (let i = 0; i < g.length; i++) g[i] = ((g[i] - lo) / span) * 255;
-          const css = getComputedStyle(document.documentElement);
-          const hex = (n: string) => {
-            const v = parseInt(css.getPropertyValue(n).trim().slice(1), 16);
-            return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
-          };
-          const on = hex("--bone");
-          const off = hex("--bg");
-          const push = (x: number, y: number, e: number) => {
-            if (x >= 0 && x < w && y < h) g[y * w + x] += e;
-          };
-          for (let y = 0; y < h; y++)
-            for (let x = 0; x < w; x++) {
-              const i = y * w + x;
-              const lit = g[i] >= 128;
-              const e = (g[i] - (lit ? 255 : 0)) / 8;
-              push(x + 1, y, e), push(x + 2, y, e), push(x - 1, y + 1, e), push(x, y + 1, e), push(x + 1, y + 1, e), push(x, y + 2, e);
-              d.data.set([...(lit ? on : off), 255], i * 4);
-            }
-          ctx.putImageData(d, 0, 0);
+          // halve in steps so every grid cell is a true average, not a few sampled pixels
+          let cur: CanvasImageSource = img;
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+          while (w > canvas.width * 2 || h > canvas.height * 2) {
+            w = Math.max(canvas.width, Math.ceil(w / 2));
+            h = Math.max(canvas.height, Math.ceil(h / 2));
+            const step = document.createElement("canvas");
+            step.width = w;
+            step.height = h;
+            const sctx = step.getContext("2d")!;
+            sctx.imageSmoothingQuality = "high";
+            sctx.drawImage(cur, 0, 0, w, h);
+            cur = step;
+          }
+          const ctx = canvas.getContext("2d")!;
+          ctx.imageSmoothingQuality = "high";
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(cur, 0, 0, canvas.width, canvas.height);
           resolve();
         };
         img.onerror = () => reject(new Error("art"));
@@ -187,7 +175,7 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
         else trk.removeAttribute("href");
         if (m.art && m.art !== lastArt) {
           lastArt = m.art;
-          dither(m.art).then(() => (canvas.hidden = false)).catch(() => (canvas.hidden = true));
+          pixelate(m.art).then(() => (canvas.hidden = false)).catch(() => (canvas.hidden = true));
         } else if (!m.art) {
           lastArt = null;
           canvas.hidden = true;

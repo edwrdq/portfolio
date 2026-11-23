@@ -5,7 +5,7 @@ import { artAllowed, getNow } from "@edwrdq/now";
 export const prerender = false;
 
 // serves the *current* track's album art, same-origin, so the strip's canvas can
-// dither it. not a proxy: it takes no url, and only fetches from known art hosts.
+// pixelate it. not a proxy: it takes no url, and only fetches from known art hosts.
 export const GET: APIRoute = async ({ locals }) => {
   // getNow, not a raw kv read: kv reads are edge-cached ~60s, so right after a track
   // change a raw read can still say "nothing playing"

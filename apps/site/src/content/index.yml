@@ -15,15 +15,15 @@
 
 - id: music
   title: music
-  desc: beats / album
+  desc: taste / beats
   intro: "what i listen to, and what i make."
   groups:
     - id: taste
       title: taste
-      intro: "what's on repeat."
+      intro: "my taste moves in stages. not phases, because i always come back. it just shifts around a lot."
     - id: making
       title: making
-      intro: "beats. an album on the way."
+      intro: "i produce my own stuff sometimes. sometimes it's fire, sometimes it's not. i only really release things as a joke. i can't take myself seriously. if i dropped something serious i'd laugh at myself."
   icon: note
   href: /music
 
