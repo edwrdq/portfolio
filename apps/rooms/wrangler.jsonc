@@ -1,0 +1,51 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // multiplayer rooms. separate from the site so site deploys never drop live games.
+  "name": "edwrdq-rooms",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-17",
+  "observability": { "enabled": true },
+
+  // only reachable at edwrdq.com/ws/* (a route beats the site's custom domain for these paths)
+  "routes": [{ "pattern": "edwrdq.com/ws/*", "zone_name": "edwrdq.com" }],
+  "workers_dev": false,
+  "preview_urls": false,
+  "triggers": { "crons": ["*/30 * * * *"] },
+
+  // one durable object per room, sqlite-backed (chat log + state live in the room, wiped on close)
+  "durable_objects": { "bindings": [{ "name": "ROOM", "class_name": "Room" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "edwrdq-db",
+      "database_id": "e81b146e-624f-4d9a-912c-f1fb895cd7a3",
+      "migrations_dir": "../../migrations"
+    }
+  ],
+  // room creation: max 10 per minute per (hashed) ip. counted in memory by cloudflare.
+  "ratelimits": [{ "name": "CREATE_LIMIT", "namespace_id": "1102", "simple": { "limit": 10, "period": 60 } }],
+  "vars": { "ORIGINS": "https://edwrdq.com,https://www.edwrdq.com" },
+  // secrets (wrangler secret put): IP_SALT — its own random value, hashes ips + session ids
+
+  "env": {
+    // local: `pnpm dev` (wrangler dev --env dev) on :8787, next to the site's astro dev on :4321.
+    // state persists into admin's .wrangler so admin → rooms sees the same local d1.
+    "dev": {
+      "name": "edwrdq-rooms", // same name locally so admin's dev server finds it
+      "routes": [],
+      "durable_objects": { "bindings": [{ "name": "ROOM", "class_name": "Room" }] },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "edwrdq-db",
+          "database_id": "e81b146e-624f-4d9a-912c-f1fb895cd7a3",
+          "migrations_dir": "../../migrations"
+        }
+      ],
+      "ratelimits": [{ "name": "CREATE_LIMIT", "namespace_id": "1102", "simple": { "limit": 10, "period": 60 } }],
+      "vars": { "ORIGINS": "http://localhost:4321,http://127.0.0.1:4321", "DEV": "1" }
+    }
+  }
+}

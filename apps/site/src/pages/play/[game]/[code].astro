@@ -1,0 +1,293 @@
+---
+// /play/<game>/<CODE>: a room. rendered per request (codes are made on the fly), never indexed.
+// the html is the frame — seats, chat — and the script fills it from the room's websocket.
+export const prerender = false;
+import Base from "../../../layouts/Base.astro";
+import Label from "@edwrdq/ui/Label.astro";
+import Chat from "../../../components/play/Chat.astro";
+import { GAMES, gameInfo, isCode, isGame } from "@edwrdq/rooms";
+
+const { game, code } = Astro.params;
+if (!isGame(game) || !isCode(code)) return new Response(null, { status: 404 });
+const g = gameInfo(game);
+const n = `P${String(GAMES.indexOf(g) + 1).padStart(2, "0")}`;
+---
+
+<Base title={`${g.name} room ${code}`} description={`join ${g.name} room ${code} on edwrdq.`} og={`play/${game}`} noindex>
+  <section class="room gutter" data-room data-game={game} data-code={code} data-max={g.max} data-ready={g.ready ? "1" : ""}>
+    <header class="bar">
+      <Label n={n}>{`ROOM — ${g.name.toUpperCase()}`}</Label>
+      <h1 class="display code">{code}</h1>
+      <div class="acts">
+        <button type="button" class="btn" data-copy>COPY INVITE LINK</button>
+        <button type="button" class="chip" data-public aria-pressed="false" disabled>private room</button>
+        <a class="back" href={g.href}>← {g.name}</a>
+      </div>
+      <p class="conn" data-conn aria-live="polite">connecting…</p>
+    </header>
+
+    <div class="cols">
+      <div class="main">
+        <p class="label">SEATS · <span data-count>0/{g.max}</span></p>
+        <ol class="seats" data-seats>
+          {Array.from({ length: g.max }, (_, i) => <li class="seat empty"><span class="n">{String(i + 1).padStart(2, "0")}</span><span class="nick">empty</span><span class="tag" /></li>)}
+        </ol>
+        <p class="hint">empty seats get bots when the host starts.</p>
+
+        <form class="name" data-name>
+          <label class="label" for="nick">your name</label>
+          <div class="name-row">
+            <input id="nick" class="field" data-nick maxlength="20" autocomplete="off" spellcheck="false" disabled />
+            <button type="submit" class="btn" disabled>SAVE</button>
+            <button type="button" class="btn" data-reroll disabled aria-label="random name">↻</button>
+          </div>
+        </form>
+
+        <div class="startbox">
+          <button type="button" class="btn btn-primary" data-start disabled>START</button>
+          <p class="hint" data-start-note>{g.ready ? "only the host can start." : `${g.name} isn't open yet. the lobby and chat work.`}</p>
+        </div>
+        <p class="gone" data-gone hidden></p>
+        <noscript><p class="gone">rooms need javascript.</p></noscript>
+      </div>
+      <Chat />
+    </div>
+  </section>
+</Base>
+
+<script>
+  import { RoomSocket, identity, saveName } from "@edwrdq/rooms/client";
+  import { randomName, cleanName } from "@edwrdq/rooms/names";
+  import { BYE_TEXT, type RoomView, type ServerMsg } from "@edwrdq/rooms/protocol";
+  import { mountChat } from "../../../lib/play/chat";
+
+  const root = document.querySelector<HTMLElement>("[data-room]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const { game, code, ready } = root.dataset as { game: string; code: string; ready: string };
+    let you = -1;
+    let room: RoomView | null = null;
+
+    const sock = new RoomSocket(code, { msg: onMsg, state: onState });
+    const chat = mountChat($("[data-chat]"), {
+      send: (text) => sock.send({ t: "chat", text }),
+      report: (id) => sock.send({ t: "report", id }),
+    });
+
+    function onState(s: "connecting" | "open" | "reconnecting" | "closed") {
+      $("[data-conn]").textContent = s === "open" ? "" : s === "reconnecting" ? "reconnecting…" : s === "connecting" ? "connecting…" : "";
+      const live = s === "open";
+      for (const el of root!.querySelectorAll<HTMLInputElement | HTMLButtonElement>("[data-name] input, [data-name] button")) el.disabled = !live;
+      if (!live) chat.enable(false, s === "closed" ? "disconnected" : "reconnecting…");
+      else if (room) chat.enable(room.chat, "chat is off right now");
+    }
+
+    function onMsg(m: ServerMsg) {
+      switch (m.t) {
+        case "welcome":
+          you = m.you;
+          if (m.room.game !== game) return location.replace(`/play/${m.room.game}/${code}`);
+          chat.reset(m.chat, you);
+          setName(m.name);
+          return render(m.room);
+        case "room":
+          return render(m.room);
+        case "chat":
+          return chat.add(m.msg);
+        case "name":
+          return setName(m.name);
+        case "notice":
+          return chat.flash(m.text);
+        case "bye": {
+          const el = $("[data-gone]");
+          el.hidden = false;
+          el.replaceChildren(document.createTextNode(`${BYE_TEXT[m.reason]} `), Object.assign(document.createElement("a"), { href: `/play/${game}`, textContent: "back to the lobby →" }));
+          $<HTMLButtonElement>("[data-start]").disabled = true;
+          $<HTMLButtonElement>("[data-public]").disabled = true;
+          return;
+        }
+      }
+    }
+
+    function setName(name: string) {
+      $<HTMLInputElement>("[data-nick]").value = name;
+      saveName(name);
+    }
+
+    function render(r: RoomView) {
+      room = r;
+      const isHost = r.host === you;
+      const lis = $("[data-seats]").children;
+      r.seats.forEach((s, i) => {
+        const li = lis[i] as HTMLElement;
+        li.className = `seat${s ? "" : " empty"}${i === you ? " you" : ""}${s && !s.online ? " away" : ""}`;
+        li.querySelector(".nick")!.textContent = s ? s.nick : "empty";
+        const tags = [i === r.host && "host", i === you && "you", s?.bot && "bot", s && !s.online && "reconnecting…"].filter(Boolean);
+        li.querySelector(".tag")!.textContent = tags.join(" · ");
+      });
+      $("[data-count]").textContent = `${r.seats.filter(Boolean).length}/${r.seats.length}`;
+      const pub = $<HTMLButtonElement>("[data-public]");
+      pub.disabled = !isHost;
+      pub.setAttribute("aria-pressed", String(r.public));
+      pub.textContent = r.public ? "public room" : "private room";
+      pub.title = isHost ? "public rooms show up in quick play" : "only the host can change this";
+      const start = $<HTMLButtonElement>("[data-start]");
+      start.disabled = !isHost || !ready;
+      start.hidden = !isHost;
+      if (ready) $("[data-start-note]").textContent = isHost ? "empty seats become bots." : "waiting for the host to start.";
+      chat.enable(r.chat, "chat is off right now");
+      if (r.slow) chat.flash("slow mode. one message every 5 seconds.");
+    }
+
+    $("[data-public]").addEventListener("click", () => room && sock.send({ t: "public", on: !room.public }));
+    $("[data-start]").addEventListener("click", () => sock.send({ t: "start" }));
+    $("[data-name]").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const n = cleanName($<HTMLInputElement>("[data-nick]").value);
+      if (!n) return chat.flash("names are 2–20 letters, numbers or dashes.");
+      sock.send({ t: "name", name: n });
+    });
+    $("[data-reroll]").addEventListener("click", () => sock.send({ t: "name", name: randomName() }));
+    $("[data-copy]").addEventListener("click", async () => {
+      const btn = $<HTMLButtonElement>("[data-copy]");
+      const link = `${location.origin}/play/${game}/${code}`;
+      try {
+        await navigator.clipboard.writeText(link);
+        btn.textContent = "COPIED";
+      } catch {
+        prompt("copy this link", link);
+      }
+      setTimeout(() => (btn.textContent = "COPY INVITE LINK"), 1600);
+    });
+
+    identity();
+    sock.connect();
+  }
+</script>
+
+<style>
+  .room {
+    padding-top: clamp(2rem, 6vw, 4rem);
+    display: grid;
+    gap: 2rem;
+  }
+  .bar {
+    display: grid;
+    gap: 1rem;
+  }
+  .code {
+    font-size: clamp(3.5rem, 16vw, 8rem);
+    letter-spacing: 0.02em;
+  }
+  .acts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .acts .chip {
+    min-height: 2.75rem;
+  }
+  .acts .chip[aria-pressed="true"] {
+    color: var(--acid);
+    border-color: var(--acid);
+  }
+  .acts .chip:disabled {
+    cursor: default;
+  }
+  .back {
+    margin-left: auto;
+    color: var(--dim-1);
+    font-size: var(--fs-small);
+  }
+  .back:hover {
+    color: var(--bone);
+  }
+  .conn {
+    min-height: 1.6em;
+    color: var(--dim-1);
+  }
+  .cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
+    gap: 2.5rem;
+    align-items: start;
+  }
+  .main {
+    display: grid;
+    gap: 1rem;
+    min-width: 0;
+  }
+  .seats {
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .seat {
+    display: grid;
+    grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    align-items: baseline;
+    padding-block: 0.6rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .seat .n {
+    color: var(--dim-3);
+    font-size: var(--fs-micro);
+    letter-spacing: var(--track-label);
+  }
+  .seat .nick {
+    color: var(--bone);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .seat .tag {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .seat.empty .nick {
+    color: var(--dim-3);
+  }
+  .seat.you .nick {
+    color: var(--acid);
+  }
+  .seat.away .nick {
+    color: var(--dim-1);
+  }
+  .hint {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .name {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+  .name-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 0.4rem;
+  }
+  .startbox {
+    display: grid;
+    gap: 0.5rem;
+    justify-items: start;
+    margin-top: 0.5rem;
+  }
+  .gone {
+    color: var(--bone);
+    border-left: 1px solid var(--acid);
+    padding-left: 0.85rem;
+  }
+  .gone :global(a) {
+    border-bottom: 1px solid var(--dim-4);
+  }
+  @media (max-width: 760px) {
+    .cols {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1.5rem;
+    }
+    .back {
+      margin-left: 0;
+    }
+  }
+</style>

@@ -211,6 +211,9 @@ importers:
       '@edwrdq/now':
         specifier: workspace:*
         version: link:../../packages/now
+      '@edwrdq/rooms':
+        specifier: workspace:*
+        version: link:../../packages/rooms
       '@edwrdq/stats':
         specifier: workspace:*
         version: link:../../packages/stats
@@ -243,6 +246,15 @@ importers:
         specifier: ^3.1.5
         version: 3.1.5
 
+  apps/rooms:
+    dependencies:
+      '@edwrdq/rooms':
+        specifier: workspace:*
+        version: link:../../packages/rooms
+      wrangler:
+        specifier: ^4.166.0
+        version: 4.166.0(@types/node@18.19.130)
+
   apps/site:
     dependencies:
       '@astrojs/cloudflare':
@@ -266,6 +278,9 @@ importers:
       '@edwrdq/now':
         specifier: workspace:*
         version: link:../../packages/now
+      '@edwrdq/rooms':
+        specifier: workspace:*
+        version: link:../../packages/rooms
       '@edwrdq/stats':
         specifier: workspace:*
         version: link:../../packages/stats
@@ -297,6 +312,8 @@ importers:
   packages/drop: {}
 
   packages/now: {}
+
+  packages/rooms: {}
 
   packages/stats: {}
 

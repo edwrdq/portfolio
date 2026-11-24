@@ -1,0 +1,389 @@
+---
+// admin → rooms: what's live, what got reported, who's banned, what's blocked, and the off switches.
+---
+
+<div class="rms" data-rms>
+  <section class="block">
+    <p class="label">SWITCHES</p>
+    <div class="row">
+      <button type="button" class="btn sm sw" data-sw="chat_off">CHAT …</button>
+      <button type="button" class="btn sm sw" data-sw="play_off">MULTIPLAYER …</button>
+    </div>
+    <p class="hint">off switches apply to every room right away. multiplayer off closes all rooms.</p>
+  </section>
+
+  <section class="block">
+    <p class="label">LIVE ROOMS · <span data-nrooms>0</span> <span class="dimmer">(refreshes every 5s)</span></p>
+    <div class="tbl-wrap"><table data-rooms></table></div>
+  </section>
+
+  <section class="block" data-peek hidden>
+    <div class="row">
+      <p class="label">ROOM <span data-peek-code></span></p>
+      <button type="button" class="btn sm" data-peek-close-room>CLOSE ROOM</button>
+      <button type="button" class="btn sm" data-peek-hide>HIDE</button>
+    </div>
+    <div class="tbl-wrap"><table data-peek-seats></table></div>
+    <ol class="log" data-peek-chat></ol>
+  </section>
+
+  <section class="block">
+    <p class="label">REPORTS · <span data-nreports>0</span> open</p>
+    <ul class="cards" data-reports></ul>
+  </section>
+
+  <section class="block">
+    <p class="label">BANS</p>
+    <div class="tbl-wrap"><table data-bans></table></div>
+  </section>
+
+  <section class="block">
+    <p class="label">BANNED WORDS</p>
+    <p class="hint">one per line. <code>word</code> = whole word (catches l33t, s p a c e s, stretched letters). <code>*word*</code> = anywhere, even inside other words. two words = a phrase, matched anywhere. <code>#</code> starts a comment. links, emails and phone numbers are always blocked.</p>
+    <textarea class="field words" data-words spellcheck="false" rows="14"></textarea>
+    <div class="row">
+      <button type="button" class="btn btn-primary" data-words-save>SAVE</button>
+      <input class="field test" data-test placeholder="test a message…" autocomplete="off" />
+      <span class="verdict" data-verdict></span>
+    </div>
+  </section>
+
+  <p class="status" data-status aria-live="polite"></p>
+</div>
+
+<script>
+  import { checkChat, compile, REASON } from "@edwrdq/rooms/filter";
+
+  const root = document.querySelector<HTMLElement>("[data-rms]");
+  if (root) {
+    const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (string | Node)[]) => {
+      const e = Object.assign(document.createElement(tag), props);
+      e.append(...kids);
+      return e;
+    };
+    const btn = (label: string, onClick: () => void, cls = "btn xs") => {
+      const b = el("button", { type: "button", className: cls, textContent: label });
+      b.addEventListener("click", onClick);
+      return b;
+    };
+    const status = (m: string) => ($("[data-status]").textContent = m);
+    async function api(path: string, payload?: unknown) {
+      const res = await fetch(`/api/rooms/${path}`, payload ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) } : undefined);
+      const out = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !out.ok) throw new Error(out.error ?? `failed (${res.status})`);
+      return out;
+    }
+    const act = (label: string, f: () => Promise<unknown>) => () =>
+      f()
+        .then(() => (status(`${label}.`), refresh()))
+        .catch((e) => status(`${label} failed: ${e.message}`));
+    const short = (h: string | null) => (h ? h.slice(0, 8) : "—");
+    const age = (unix: number) => {
+      const s = Math.max(0, Math.round(Date.now() / 1000 - unix));
+      return s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1)}h`;
+    };
+    const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const banButtons = (who: { sid?: string | null; ip?: string | null; nick?: string }, reason: string) =>
+      (["1h", "24h", "forever"] as const).map((d) =>
+        btn(`ban ${d}`, () => {
+          if (!confirm(`ban ${who.nick ?? "this session"} for ${d}? (session + ip)`)) return;
+          act(`banned ${who.nick ?? ""} for ${d}`, () => api("ban", { sid: who.sid, ip: who.ip, nick: who.nick, duration: d, reason }))();
+        }),
+      );
+
+    // ---------------- switches
+    let sw = { chat_off: false, play_off: false };
+    function paintSwitches() {
+      for (const b of root!.querySelectorAll<HTMLButtonElement>("[data-sw]")) {
+        const key = b.dataset.sw as "chat_off" | "play_off";
+        const off = sw[key];
+        b.textContent = `${key === "chat_off" ? "CHAT" : "MULTIPLAYER"}: ${off ? "OFF" : "ON"}`;
+        b.classList.toggle("off", off);
+      }
+    }
+    for (const b of root.querySelectorAll<HTMLButtonElement>("[data-sw]")) {
+      b.addEventListener("click", () => {
+        const key = b.dataset.sw as "chat_off" | "play_off";
+        const turnOff = !sw[key];
+        const what = key === "chat_off" ? "chat everywhere" : "multiplayer (closes every room)";
+        if (!confirm(`turn ${turnOff ? "OFF" : "on"} ${what}?`)) return;
+        act(`${key === "chat_off" ? "chat" : "multiplayer"} ${turnOff ? "off" : "on"}`, () => api("switch", { key, on: turnOff }))();
+      });
+    }
+
+    // ---------------- live rooms
+    let peeking: string | null = null;
+    async function live() {
+      const j = await api("live");
+      sw = { chat_off: j.chatOff, play_off: j.playOff };
+      paintSwitches();
+      $("[data-nrooms]").textContent = String(j.rooms.length);
+      $("[data-nreports]").textContent = String(j.reports);
+      $("[data-rooms]").replaceChildren(
+        el("tr", {}, ...["code", "game", "players", "state", "public", "age", "last change", ""].map((h) => el("th", {}, h))),
+        ...j.rooms.map((r: any) =>
+          el(
+            "tr",
+            {},
+            el("td", {}, r.code),
+            el("td", {}, r.game),
+            el("td", {}, `${r.players}/${r.max}`),
+            el("td", {}, r.state),
+            el("td", {}, r.public ? "yes" : "no"),
+            el("td", {}, age(r.created_at)),
+            el("td", {}, `${age(r.updated_at)} ago`),
+            el("td", {}, btn("peek", () => peek(r.code))),
+          ),
+        ),
+      );
+      if (!j.rooms.length) $("[data-rooms]").append(el("tr", {}, el("td", { colSpan: 8, className: "dimmer" }, "no rooms right now.")));
+    }
+
+    // ---------------- peek
+    async function peek(code: string) {
+      peeking = code;
+      $("[data-peek]").hidden = false;
+      $("[data-peek-code]").textContent = code;
+      await paintPeek();
+    }
+    async function paintPeek() {
+      if (!peeking) return;
+      const code = peeking;
+      const { room } = await api(`peek?code=${code}`);
+      if (!room) {
+        $("[data-peek-seats]").replaceChildren(el("tr", {}, el("td", { className: "dimmer" }, "this room closed.")));
+        $("[data-peek-chat]").replaceChildren();
+        return;
+      }
+      $("[data-peek-code]").textContent = `${code} · ${room.game} · ${room.state}${room.slow ? " · slow mode" : ""}`;
+      $("[data-peek-seats]").replaceChildren(
+        el("tr", {}, ...["#", "nick", "session", "ip", "", ""].map((h) => el("th", {}, h))),
+        ...room.seats.map((s: any, i: number) => {
+          if (!s) return el("tr", { className: "dimmer" }, el("td", {}, String(i + 1)), el("td", { colSpan: 5 }, "empty"));
+          if (s.bot) return el("tr", {}, el("td", {}, String(i + 1)), el("td", {}, `${s.nick} (bot)`), el("td", { colSpan: 4 }));
+          const tags = [i === room.host && "host", !s.online && "away", s.muted && "muted"].filter(Boolean).join(" · ");
+          return el(
+            "tr",
+            {},
+            el("td", {}, String(i + 1)),
+            el("td", {}, s.nick, tags ? el("span", { className: "dimmer" }, ` ${tags}`) : ""),
+            el("td", { title: s.sid }, short(s.sid)),
+            el("td", { title: s.ip }, short(s.ip)),
+            el(
+              "td",
+              { className: "acts" },
+              btn(s.muted ? "unmute" : "mute", act(s.muted ? "unmuted" : "muted", () => api("moderate", { code, action: s.muted ? "unmute" : "mute", sid: s.sid }))),
+              btn("kick", act("kicked", () => api("moderate", { code, action: "kick", sid: s.sid }))),
+            ),
+            el("td", { className: "acts" }, ...banButtons({ sid: s.sid, ip: s.ip, nick: s.nick }, `from room ${code}`)),
+          );
+        }),
+      );
+      $("[data-peek-chat]").replaceChildren(
+        ...room.chat.map((m: any) =>
+          el(
+            "li",
+            { className: m.sys ? "sys" : "" },
+            el("span", { className: "dimmer" }, `${time(m.at)} `),
+            m.sys ? "" : el("span", { className: "who" }, `${m.nick} [${short(m.sid_hash)}]: `),
+            el("span", {}, m.body),
+          ),
+        ),
+      );
+      if (!room.chat.length) $("[data-peek-chat]").append(el("li", { className: "sys" }, "no chat yet."));
+    }
+    $("[data-peek-hide]").addEventListener("click", () => {
+      peeking = null;
+      $("[data-peek]").hidden = true;
+    });
+    $("[data-peek-close-room]").addEventListener("click", () => {
+      if (peeking && confirm(`close room ${peeking}? everyone in it is sent back to the lobby.`)) act("closed room", () => api("moderate", { code: peeking, action: "close" }))();
+    });
+
+    // ---------------- reports
+    async function reports() {
+      const { reports } = await api("reports");
+      $("[data-reports]").replaceChildren(
+        ...reports.map((r: any) =>
+          el(
+            "li",
+            {},
+            el("p", { className: "top" }, `${new Date(r.created_at * 1000).toLocaleString()} · room ${r.code} (${r.game}) · sent ${time(r.sent_at)} · session ${short(r.sid_hash)} · ip ${short(r.ip_hash)}`),
+            el("p", { className: "msg" }, el("span", { className: "who" }, `${r.nick}: `), r.body),
+            el("div", { className: "row" }, btn("dismiss", act("dismissed", () => api("dismiss", { id: r.id }))), ...banButtons({ sid: r.sid_hash, ip: r.ip_hash, nick: r.nick }, `report #${r.id}: ${r.body}`)),
+          ),
+        ),
+      );
+      if (!reports.length) $("[data-reports]").append(el("li", { className: "dimmer" }, "nothing reported."));
+    }
+
+    // ---------------- bans
+    async function bans() {
+      const { bans } = await api("bans");
+      $("[data-bans]").replaceChildren(
+        el("tr", {}, ...["when", "nick", "session", "ip", "expires", "reason", ""].map((h) => el("th", {}, h))),
+        ...bans.map((b: any) =>
+          el(
+            "tr",
+            {},
+            el("td", {}, new Date(b.created_at * 1000).toLocaleString()),
+            el("td", {}, b.nick ?? "—"),
+            el("td", {}, short(b.sid_hash)),
+            el("td", {}, short(b.ip_hash)),
+            el("td", {}, b.expires_at ? new Date(b.expires_at * 1000).toLocaleString() : "never"),
+            el("td", { className: "reason" }, b.reason ?? ""),
+            el("td", {}, btn("unban", () => confirm("lift this ban?") && act("unbanned", () => api("unban", { id: b.id }))())),
+          ),
+        ),
+      );
+      if (!bans.length) $("[data-bans]").append(el("tr", {}, el("td", { colSpan: 7, className: "dimmer" }, "no active bans.")));
+    }
+
+    // ---------------- banned words + tester (same filter the rooms run)
+    const words = $<HTMLTextAreaElement>("[data-words]");
+    const test = $<HTMLInputElement>("[data-test]");
+    const verdict = () => {
+      if (!test.value) return ($("[data-verdict]").textContent = "");
+      const v = checkChat(test.value, compile(words.value));
+      $("[data-verdict]").textContent = v.ok ? "→ sends" : `→ ${REASON[v.reason]}`;
+    };
+    test.addEventListener("input", verdict);
+    words.addEventListener("input", verdict);
+    $("[data-words-save]").addEventListener("click", act("saved banned words", () => api("words", { words: words.value })));
+    api("words").then((j) => (words.value = j.words));
+
+    async function refresh() {
+      await Promise.all([live(), reports(), bans(), paintPeek()]).catch((e) => status(e.message));
+    }
+    refresh();
+    setInterval(() => {
+      if (document.hidden) return;
+      live().catch(() => {});
+      paintPeek().catch(() => {});
+    }, 5000);
+  }
+</script>
+
+<style>
+  .rms {
+    max-width: 64rem;
+    display: grid;
+    gap: 2rem;
+  }
+  .block {
+    display: grid;
+    gap: 0.6rem;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .btn.sm {
+    height: 2.75rem;
+    padding-inline: 0.85rem;
+  }
+  .rms :global(.btn.xs) {
+    height: 2rem;
+    padding-inline: 0.6rem;
+  }
+  .sw.off {
+    border-color: var(--acid);
+    color: var(--acid);
+  }
+  .hint {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+    max-width: 70ch;
+  }
+  .hint code {
+    color: var(--bone);
+  }
+  .tbl-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--seam-soft);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: var(--fs-small);
+    font-variant-numeric: tabular-nums;
+  }
+  table :global(th),
+  table :global(td) {
+    text-align: left;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--seam-soft);
+    white-space: nowrap;
+  }
+  table :global(th) {
+    color: var(--dim-2);
+    font-weight: 400;
+  }
+  table :global(td.acts) {
+    display: flex;
+    gap: 0.3rem;
+  }
+  table :global(td.reason) {
+    white-space: normal;
+    max-width: 22rem;
+    overflow-wrap: anywhere;
+    color: var(--dim-1);
+  }
+  .log {
+    max-height: 22rem;
+    overflow-y: auto;
+    border: 1px solid var(--seam);
+    background: var(--surface);
+    padding: 0.6rem 0.75rem;
+    font-size: var(--fs-small);
+    display: grid;
+    gap: 0.2rem;
+  }
+  .log :global(li),
+  .cards :global(.msg) {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .rms :global(.sys) {
+    color: var(--dim-2);
+  }
+  .rms :global(.who) {
+    color: var(--dim-1);
+  }
+  .cards {
+    display: grid;
+    gap: 0.4rem;
+  }
+  .cards :global(li) {
+    display: grid;
+    gap: 0.5rem;
+    padding: 0.7rem;
+    border: 1px solid var(--seam-soft);
+  }
+  .cards :global(.top) {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .cards :global(.msg) {
+    color: var(--bone);
+  }
+  .words {
+    font-family: var(--font-mono);
+    font-size: var(--fs-small);
+  }
+  .test {
+    width: auto;
+    flex: 1 1 16rem;
+  }
+  .verdict {
+    font-size: var(--fs-small);
+    color: var(--bone);
+  }
+  .status {
+    min-height: 1.5em;
+    color: var(--dim-1);
+  }
+</style>

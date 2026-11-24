@@ -1,0 +1,126 @@
+---
+// room chat: the lobby's right column, and later the in-game sidebar. collapsible on phones.
+// plain text only: every message is put on the page with textContent, never as html.
+interface Props {
+  open?: boolean;
+}
+const { open = true } = Astro.props;
+---
+
+<aside class="chat" data-chat aria-label="room chat">
+  <button type="button" class="chat-toggle label" data-chat-toggle aria-expanded={open ? "true" : "false"} aria-controls="chat-body">
+    <span>CHAT</span><span class="unread" data-unread></span><span class="caret" aria-hidden="true">{open ? "−" : "+"}</span>
+  </button>
+  <p class="chat-h label">CHAT</p>
+  <div id="chat-body" class="chat-body" data-chat-body hidden={!open}>
+    <ol class="log" data-log aria-live="polite" aria-relevant="additions"></ol>
+    <p class="cool">be cool. no personal info.</p>
+    <form class="say" data-say>
+      <label class="sr-only" for="chat-in">message</label>
+      <input id="chat-in" class="field" data-say-in maxlength="200" autocomplete="off" placeholder="say something" disabled />
+      <button type="submit" class="btn" disabled>SEND</button>
+    </form>
+    <p class="note" data-note aria-live="polite"><span data-note-text></span><span class="count" data-say-count></span></p>
+  </div>
+</aside>
+
+<style>
+  .chat {
+    display: grid;
+    align-content: start;
+    gap: 0.6rem;
+    min-width: 0;
+  }
+  .chat-toggle {
+    display: none;
+  }
+  .chat-body {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .log {
+    height: 22rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--seam);
+    background: var(--surface);
+    padding: 0.6rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: var(--fs-small);
+    line-height: 1.5;
+  }
+  .log :global(li) {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .log :global(.who) {
+    color: var(--dim-1);
+  }
+  .log :global(.me .who) {
+    color: var(--bone);
+  }
+  .log :global(.sys) {
+    color: var(--dim-2);
+  }
+  .log :global(.rep) {
+    margin-left: 0.5em;
+    font-size: var(--fs-micro);
+    color: var(--dim-3);
+    letter-spacing: 0.04em;
+  }
+  .log :global(.rep:hover),
+  .log :global(.rep[data-armed]) {
+    color: var(--bone);
+  }
+  .log :global(.rep:disabled) {
+    color: var(--dim-3);
+    cursor: default;
+  }
+  .cool {
+    font-size: var(--fs-micro);
+    color: var(--dim-2);
+  }
+  .say {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.4rem;
+  }
+  .note {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: 1.5em;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+  .count {
+    color: var(--dim-3);
+    margin-left: auto;
+  }
+  @media (max-width: 760px) {
+    .chat-h {
+      display: none;
+    }
+    .chat-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      width: 100%;
+      min-height: 2.75rem;
+      border-top: 1px solid var(--seam);
+      color: var(--text);
+    }
+    .unread {
+      color: var(--acid);
+    }
+    .caret {
+      margin-left: auto;
+      font-size: var(--fs-body);
+    }
+    .log {
+      height: 16rem;
+    }
+  }
+</style>

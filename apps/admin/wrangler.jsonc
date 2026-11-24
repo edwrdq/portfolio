@@ -28,6 +28,8 @@
       "migrations_dir": "../../migrations"
     }
   ],
+  // live rooms live in the edwrdq-rooms worker. admin talks to them directly (peek, mute, kick, ban).
+  "durable_objects": { "bindings": [{ "name": "ROOM", "class_name": "Room", "script_name": "edwrdq-rooms" }] },
   "kv_namespaces": [{ "binding": "STATS", "id": "0886482697404b71b44afea34f41377f" }],
   "r2_buckets": [
     { "binding": "DROP", "bucket_name": "edwrdq-drop" },
@@ -41,6 +43,7 @@
     // swallow vite's dev-server requests, and there's no Access in front locally.
     "dev": {
       "assets": { "binding": "ASSETS", "run_worker_first": false },
+      "durable_objects": { "bindings": [{ "name": "ROOM", "class_name": "Room", "script_name": "edwrdq-rooms" }] },
       "kv_namespaces": [{ "binding": "STATS", "id": "0886482697404b71b44afea34f41377f" }],
       "r2_buckets": [
     { "binding": "DROP", "bucket_name": "edwrdq-drop" },

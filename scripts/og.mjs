@@ -161,6 +161,11 @@ TOOLS.push(
   { ...(await dailyCard("D06", "real-or-random", "one chart is real. one is a random walk.", "chart")), title: "real or random", kicker: "D06 — DAILY / REAL OR RANDOM" },
   await dailyCard("D07", "estimate", "one fermi question. get within 2×.", "dither"),
 );
+TOOLS.push(
+  { path: "play", kicker: "P00 — PLAY / MULTIPLAYER", title: "play", sub: "make a room, send the link. bots fill the seats.", foot: "EDWRDQ.COM/PLAY", art: await iconArt("site") },
+  { path: "play/auction", kicker: "P01 — PLAY / AUCTION", title: "auction", sub: "buy wrecked cars. flip them. best profit wins.", foot: "EDWRDQ.COM/PLAY/AUCTION", art: carArt },
+  { path: "play/arena", kicker: "P02 — PLAY / ARENA", title: "arena", sub: "program your autonomous. then drive.", foot: "EDWRDQ.COM/PLAY/ARENA", art: await iconArt("chip") },
+);
 for (const t of TOOLS) jobs.push([t.path, card(t)]);
 
 for (const p of await posts()) {

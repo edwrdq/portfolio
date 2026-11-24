@@ -1,0 +1,16 @@
+{
+  "name": "@edwrdq/rooms",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/games.ts",
+    "./filter": "./src/filter.ts",
+    "./names": "./src/names.ts",
+    "./protocol": "./src/protocol.ts",
+    "./client": "./src/client.ts"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

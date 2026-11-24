@@ -2,8 +2,11 @@
 import type { APIRoute } from "astro";
 import { getIndex, getPosts } from "../lib/content";
 import { GAMES } from "@edwrdq/daily";
+import { GAMES as PLAY } from "@edwrdq/rooms";
 
-const TOOLS = ["/dither", "/daily", "/daily/archive", ...GAMES.map((g) => g.href)];
+// multiplayer pages join the sitemap once their game is playable (rooms themselves never do)
+const live = PLAY.filter((g) => g.ready).map((g) => g.href);
+const TOOLS = ["/dither", "/daily", "/daily/archive", ...GAMES.map((g) => g.href), ...(live.length ? ["/play", ...live] : [])];
 const HIDDEN = new Set(["/styleguide"]);
 
 export const GET: APIRoute = async ({ site }) => {

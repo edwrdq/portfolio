@@ -20,6 +20,7 @@
     "@edwrdq/dither": "workspace:*",
     "@edwrdq/drop": "workspace:*",
     "@edwrdq/now": "workspace:*",
+    "@edwrdq/rooms": "workspace:*",
     "@edwrdq/stats": "workspace:*",
     "@edwrdq/ui": "workspace:*",
     "astro": "^7.4.13",

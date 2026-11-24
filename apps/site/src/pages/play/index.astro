@@ -1,0 +1,28 @@
+---
+// /play: the multiplayer games. rooms, invite links, bots fill empty seats.
+import Base from "../../layouts/Base.astro";
+import PageHead from "../../components/PageHead.astro";
+import ToolFoot from "../../components/ToolFoot.astro";
+import Row from "@edwrdq/ui/Row.astro";
+import { GAMES } from "@edwrdq/rooms";
+
+const description = "free multiplayer browser games. make a room, send the link, bots fill the empty seats. no accounts.";
+const ICON = { auction: "car", arena: "chip" } as const;
+const live = GAMES.some((g) => g.ready);
+---
+
+<Base title="play" description={description} og="play" noindex={!live}>
+  <PageHead n="P00" label="PLAY — MULTIPLAYER" title="play" intro="make a room, send the link. bots fill the empty seats. no accounts." />
+  <section class="gutter">
+    <ol class="rows">
+      {GAMES.map((g, i) => <Row n={`P${String(i + 1).padStart(2, "0")}`} title={g.name} desc={g.blurb} icon={ICON[g.id]} href={g.href}>{!g.ready && <span class="soon">[soon]</span>}</Row>)}
+    </ol>
+  </section>
+  <ToolFoot />
+</Base>
+
+<style>
+  .soon {
+    color: var(--dim-2);
+  }
+</style>
