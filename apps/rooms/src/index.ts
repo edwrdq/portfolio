@@ -47,7 +47,10 @@ export default {
     const onion = isOnion(request, env);
     const allowed = env.ORIGINS.split(",").map((s) => s.trim());
     if (onion && ONION_ADDRESS) allowed.push(`http://${ONION_ADDRESS}`);
-    if (!origin || !allowed.includes(origin)) return new Response("forbidden", { status: 403 });
+    // browsers leave Origin off same-origin GETs (websockets always send it), so a missing Origin
+    // is fine only when the browser itself says the request came from this site.
+    const sameSite = !origin && request.headers.get("sec-fetch-site") === "same-origin";
+    if (!sameSite && (!origin || !allowed.includes(origin))) return new Response("forbidden", { status: 403 });
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env, origin) });
     if (request.method !== "GET") return new Response("method not allowed", { status: 405 });
 

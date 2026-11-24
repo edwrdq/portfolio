@@ -66,6 +66,14 @@
   icon: box
   href: /misc
 
+- id: play
+  title: play
+  desc: games / puzzles
+  intro: "a daily puzzle set, the same for everyone. and multiplayer games: make a room, send the link, bots fill the empty seats. no accounts."
+  layout: rows
+  icon: face
+  href: /play
+
 - id: tools
   title: tools
   desc: free / in your browser

@@ -7,10 +7,16 @@ const lines = [
   { k: "business", v: "edwardquintero@indicatoriq.app", href: "mailto:edwardquintero@indicatoriq.app" },
   { k: "matrix", v: "[soon. i'll remember eventually]", dim: true },
 ];
+import { pad } from "../lib/content";
+interface Props {
+  /** position after the homepage index rows */
+  n: number;
+}
+const { n } = Astro.props;
 ---
 
 <section class="contact gutter" id="contact" aria-labelledby="contact-label">
-  <Label n="009" as="h2" id="contact-label">CONTACT</Label>
+  <Label n={pad(n)} as="h2" id="contact-label">CONTACT</Label>
   <dl class="lines">
     {
       lines.map((l) => (

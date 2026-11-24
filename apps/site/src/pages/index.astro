@@ -39,9 +39,9 @@ const entries = await getIndex();
   </nav>
 
   <Seam class="sec" />
-  <Contact />
+  <Contact n={entries.length + 1} />
   <Seam class="sec" />
-  <Guestbook />
+  <Guestbook n={entries.length + 2} />
 </Base>
 
 <style>

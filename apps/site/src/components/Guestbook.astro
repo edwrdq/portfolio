@@ -3,10 +3,16 @@ import Label from "@edwrdq/ui/Label.astro";
 import MessageForm from "./MessageForm.astro";
 
 const presets = ["w site w chews", "hire him please @lockheedmartin", "teach me asm pls", "drop the alby", "matrix?? where???????", "wheres the plant"];
+import { pad } from "../lib/content";
+interface Props {
+  /** position after the homepage index rows */
+  n: number;
+}
+const { n } = Astro.props;
 ---
 
 <section class="guestbook gutter" id="guestbook" aria-labelledby="gb-title">
-  <Label n="010">LEAVE A MESSAGE</Label>
+  <Label n={pad(n)}>LEAVE A MESSAGE</Label>
 
   <h2 class="display title" id="gb-title">say something<span class="acid">.</span></h2>
 
