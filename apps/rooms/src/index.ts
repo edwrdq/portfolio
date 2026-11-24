@@ -4,7 +4,8 @@
 //   GET /ws/room/K7QX  (websocket)        → that room's durable object
 // browser-only: requests must come from the site's origin. ips are hashed here and never kept raw.
 import { GAMES, isCode, isGame, newCode } from "@edwrdq/rooms";
-import { banned, hash, settings } from "./shared";
+import { ONION_ADDRESS } from "@edwrdq/ui/onion";
+import { banned, hash, isOnion, settings } from "./shared";
 
 export { Room } from "./room";
 
@@ -43,7 +44,9 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const origin = request.headers.get("origin");
+    const onion = isOnion(request, env);
     const allowed = env.ORIGINS.split(",").map((s) => s.trim());
+    if (onion && ONION_ADDRESS) allowed.push(`http://${ONION_ADDRESS}`);
     if (!origin || !allowed.includes(origin)) return new Response("forbidden", { status: 403 });
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env, origin) });
     if (request.method !== "GET") return new Response("method not allowed", { status: 405 });
@@ -52,9 +55,11 @@ export default {
     if (s.playOff) return reply(env, origin, { ok: false, error: "multiplayer is off right now. try again later." }, 503);
 
     const ip = request.headers.get("cf-connecting-ip") ?? (env.DEV ? "127.0.0.1" : "");
+    // tor visitors all arrive from the vps: no ip hash for them (an ip ban would ban all of tor).
+    // they're limited and banned by session instead.
     let ipHash: string;
     try {
-      ipHash = await hash(env, "ip", ip);
+      ipHash = onion ? "" : await hash(env, "ip", ip);
     } catch {
       return reply(env, origin, { ok: false, error: "rooms aren't set up yet." }, 503);
     }
@@ -73,7 +78,9 @@ export default {
           .first<{ code: string }>();
         if (open) return reply(env, origin, { ok: true, code: open.code });
       }
-      const { success } = await env.CREATE_LIMIT.limit({ key: ipHash });
+      const sid = url.searchParams.get("s") ?? "";
+      const key = onion ? `onion:${await hash(env, "sid", sid.slice(0, 64) || "none")}` : ipHash;
+      const { success } = await env.CREATE_LIMIT.limit({ key });
       if (!success) return reply(env, origin, { ok: false, error: "slow down. try again in a minute." }, 429);
       const code = await makeRoom(env, game, parts[1] === "quick" || url.searchParams.get("public") === "1");
       return code ? reply(env, origin, { ok: true, code }) : reply(env, origin, { ok: false, error: "couldn't make a room. try again." }, 500);

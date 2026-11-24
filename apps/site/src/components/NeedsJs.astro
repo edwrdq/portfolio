@@ -1,0 +1,16 @@
+---
+// shown only to onion visitors with javascript off (the worker tags <html data-onion> for them)
+---
+
+<noscript><p class="needs-js">needs javascript. tor browser on "safest" turns it off.</p></noscript>
+
+<style>
+  .needs-js {
+    display: none;
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  :global(html[data-onion]) .needs-js {
+    display: block;
+  }
+</style>

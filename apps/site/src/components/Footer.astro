@@ -1,5 +1,6 @@
 ---
 import Seam from "@edwrdq/ui/Seam.astro";
+import { ONION_ADDRESS } from "@edwrdq/ui/onion";
 const year = new Date().getFullYear();
 ---
 
@@ -9,6 +10,14 @@ const year = new Date().getFullYear();
     <a href="https://github.com/edwrdq" rel="me noopener" target="_blank">GITHUB</a>
     <span class="dot" aria-hidden="true">·</span>
     <a href="https://www.chess.com/member/edwrdq" rel="me noopener" target="_blank">CHESS</a>
+    {
+      ONION_ADDRESS && (
+        <>
+          <span class="dot" aria-hidden="true">·</span>
+          <a href={`http://${ONION_ADDRESS}/`} rel="noopener" title="this site over tor">tor ↗</a>
+        </>
+      )
+    }
     <span class="dot" aria-hidden="true">·</span>
     <span>© {year} EDWRDQ</span>
   </div>

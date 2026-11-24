@@ -8,9 +8,15 @@
     "./filter": "./src/filter.ts",
     "./names": "./src/names.ts",
     "./protocol": "./src/protocol.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./auction": "./src/auction.ts",
+    "./arena": "./src/arena.ts"
   },
   "scripts": {
     "test": "node --test test/"
+  },
+  "dependencies": {
+    "@edwrdq/daily": "workspace:*",
+    "@edwrdq/ui": "workspace:*"
   }
 }

@@ -1,11 +1,12 @@
 // shared pipeline for guestbook messages and blog comments:
 // parse → validate → turnstile → rate limit → insert (pending) → discord ping
 import { env } from "cloudflare:workers";
+import { isOnion } from "./onion";
 
 const RATE_LIMIT = 5;
 const RATE_WINDOW_S = 10 * 60;
 
-export type Input = { body: string; name: string | null; token: string };
+export type Input = { body: string; name: string | null; token: string; pow: unknown; sid: string };
 
 export class Fail extends Error {
   constructor(
@@ -44,6 +45,7 @@ export async function readInput(request: Request): Promise<Record<string, unknow
   const body = clean(raw.body);
   const name = clean(raw.name).replace(/\s+/g, " ");
   const token = typeof raw.token === "string" ? raw.token : "";
+  const sid = typeof raw.sid === "string" && /^[A-Za-z0-9_-]{16,64}$/.test(raw.sid) ? raw.sid : "";
 
   // count code points, not utf-16 units
   const len = (s: string) => [...s].length;
@@ -51,7 +53,7 @@ export async function readInput(request: Request): Promise<Record<string, unknow
   if (len(body) > 1000) throw new Fail(400, "keep it under 1000 characters.");
   if (len(name) > 40) throw new Fail(400, "name's too long. 40 max.");
 
-  return { ...raw, body, name: name || null, token };
+  return { ...raw, body, name: name || null, token, pow: raw.pow, sid };
 }
 
 export async function verifyTurnstile(token: string, ip: string | null) {
@@ -84,6 +86,60 @@ export async function hashIp(ip: string | null) {
   const data = new TextEncoder().encode(`${ip ?? "unknown"}${salt ?? "dev"}`);
   const digest = await crypto.subtle.digest("SHA-256", data);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ---------------------------------------------------------------- tor visitors
+// turnstile usually can't run over tor, and every onion visitor shares the vps's ip. so onion
+// submissions do a small proof-of-work instead, are rate limited per browser session (not ip),
+// and all onion submissions together share a stricter cap (ONION_LIMIT).
+
+export const POW_BITS = 18; // ~262k hashes on average: about a second in tor browser
+const POW_TTL_S = 10 * 60;
+
+const hex = (buf: ArrayBuffer) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+async function hmac(msg: string) {
+  const secret = (env as { ONION_SECRET?: string }).ONION_SECRET || env.IP_SALT || (import.meta.env.DEV ? "dev" : "");
+  if (!secret) throw new Fail(500, "not set up yet. tell eddy.");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(`pow:${secret}`), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)));
+}
+/** a challenge: find a nonce so sha256(`${sig}:${nonce}`) starts with POW_BITS zero bits */
+export async function powChallenge() {
+  const ts = Math.floor(Date.now() / 1000);
+  return { ts, sig: await hmac(String(ts)), bits: POW_BITS };
+}
+export function leadingZeroBits(bytes: Uint8Array) {
+  let n = 0;
+  for (const b of bytes) {
+    if (b === 0) {
+      n += 8;
+      continue;
+    }
+    return n + Math.clz32(b) - 24;
+  }
+  return n;
+}
+async function verifyPow(pow: unknown) {
+  const p = pow as { ts?: unknown; sig?: unknown; nonce?: unknown } | null;
+  if (!p || typeof p.ts !== "number" || typeof p.sig !== "string" || typeof p.nonce !== "string" || p.nonce.length > 32) throw new Fail(400, "the tor check didn't finish. try again.");
+  if (Math.abs(Date.now() / 1000 - p.ts) > POW_TTL_S) throw new Fail(400, "that check expired. try again.");
+  if (p.sig !== (await hmac(String(p.ts)))) throw new Fail(403, "the tor check said no. refresh and try again.");
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${p.sig}:${p.nonce}`)));
+  if (leadingZeroBits(h) < POW_BITS) throw new Fail(403, "the tor check said no. refresh and try again.");
+}
+
+/** the human check + who to rate limit, for normal and onion visits alike */
+export async function checkSender(request: Request, input: Input) {
+  if (isOnion(request)) {
+    await verifyPow(input.pow);
+    const { success } = await (env as unknown as { ONION_LIMIT: RateLimit }).ONION_LIMIT.limit({ key: "onion-submit" });
+    if (!success) throw new Fail(429, "lots of tor traffic right now. try again in a minute.");
+    // per browser session: the page makes a random id and keeps it in localStorage
+    return hashIp(`onion:${input.sid || "none"}`);
+  }
+  const ip = clientIp(request);
+  await verifyTurnstile(input.token, ip);
+  return hashIp(ip);
 }
 
 /** 5 submissions per 10 min per ip hash, across messages + comments */

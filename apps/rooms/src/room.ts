@@ -10,12 +10,16 @@ import { checkChat, nameAllowed, REASON } from "@edwrdq/rooms/filter";
 import { cleanName, randomName } from "@edwrdq/rooms/names";
 import { CLOSE, PROTOCOL, type ByeReason, type ChatMsg, type ClientMsg, type RoomView, type ServerMsg } from "@edwrdq/rooms/protocol";
 import { banned, hash, isSid, settings } from "./shared";
+import * as auction from "@edwrdq/rooms/auction";
+import * as arena from "@edwrdq/rooms/arena";
+
+type Game = { kind: "auction"; s: auction.AuctionState } | { kind: "arena"; s: arena.ArenaState };
 
 const GRACE_MS = 30_000; // refresh → back in your seat
 const UNJOINED_MS = 2 * 60_000; // a room nobody ever joins closes after this
 const KICK_MS = 10 * 60_000; // kicked players can't rejoin the same room for this long
 const CHAT_KEEP = 50;
-const MAX_FRAME = 2048;
+const MAX_FRAME = 4096; // arena programs ride in one frame
 
 // chat rate limits
 const GAP_MS = 1000; // 1 message / sec
@@ -39,6 +43,8 @@ type State = {
   createdAt: number;
   muted: string[];
   kicked: Record<string, number>;
+  /** the running game, or the last finished one (its results stay up until the next start) */
+  match?: Game | null;
 };
 type Attach = { ipHash: string; sidHash: string | null; seat: number };
 
@@ -91,6 +97,7 @@ export class Room extends DurableObject<Env> {
   }
 
   private async close(reason: ByeReason) {
+    this.stopLoop();
     const code = this.st?.code;
     for (const ws of this.ctx.getWebSockets()) this.bye(ws, reason);
     this.st = null;
@@ -104,8 +111,11 @@ export class Room extends DurableObject<Env> {
     if (!s) return;
     const times = s.seats.filter(isHuman).flatMap((h) => (h.leftAt ? [h.leftAt + GRACE_MS] : []));
     if (this.slowUntil > Date.now()) times.push(this.slowUntil);
+    const g = this.gameWake();
+    if (g !== null) times.push(g);
     if (!s.seats.some(isHuman)) times.push(Date.now() + GRACE_MS);
-    if (times.length) await this.ctx.storage.setAlarm(Math.min(...times));
+    // whole ms, a little in the future: an alarm for "right now" can be dropped
+    if (times.length) await this.ctx.storage.setAlarm(Math.max(Date.now() + 10, Math.ceil(Math.min(...times))));
     else await this.ctx.storage.deleteAlarm();
   }
 
@@ -116,11 +126,27 @@ export class Room extends DurableObject<Env> {
     let changed = false;
     s.seats.forEach((seat, i) => {
       if (isHuman(seat) && seat.leftAt && now - seat.leftAt >= GRACE_MS) {
-        s.seats[i] = null;
-        this.sys(`${seat.nick} left.`);
+        if (s.state === "playing") {
+          // mid-game: a bot takes over the seat so the game keeps going
+          s.seats[i] = { bot: true, nick: seat.nick };
+          if (s.match?.kind === "auction") auction.botify(s.match.s, i);
+          if (s.match?.kind === "arena") arena.botify(s.match.s, i);
+          this.sys(`${seat.nick} left. a bot took over.`);
+        } else {
+          s.seats[i] = null;
+          this.sys(`${seat.nick} left.`);
+        }
         changed = true;
       }
     });
+    if (s.state === "playing" && s.seats.some(isHuman)) {
+      try {
+        await this.gameTick(now);
+      } catch (e) {
+        // never let a game bug wedge the room's clock
+        console.error("game tick", e);
+      }
+    }
     if (!s.seats.some(isHuman)) return this.close("closed");
     if (this.slowUntil && now >= this.slowUntil) {
       this.slowUntil = 0;
@@ -253,10 +279,15 @@ export class Room extends DurableObject<Env> {
         await this.sync();
         return this.broadcastRoom();
       case "start": {
-        if (a.seat !== this.st.host) return;
+        if (a.seat !== this.st.host) return this.notice(ws, "only the host can start.");
         const g = gameInfo(this.st.game);
         if (!g.ready) return this.notice(ws, `${g.name} isn't open yet. the lobby works though.`);
-        return;
+        if (this.st.state !== "lobby") return;
+        return this.startGame(ws, msg.opts);
+      }
+      case "g": {
+        if (this.st.state !== "playing" || !this.st.match || !msg.x || typeof msg.x !== "object") return;
+        return this.gameAction(ws, a.seat, msg.x);
       }
     }
   }
@@ -285,7 +316,7 @@ export class Room extends DurableObject<Env> {
       (s.seats[i] as Human).leftAt = null;
       (s.seats[i] as Human).ipHash = a.ipHash;
     } else {
-      if (s.state !== "lobby") return this.bye(ws, "full");
+      if (s.state !== "lobby") return this.bye(ws, "started");
       i = s.seats.findIndex((x) => x === null);
       if (i < 0) return this.bye(ws, "full");
       let nick = cleanName(msg.name);
@@ -297,6 +328,7 @@ export class Room extends DurableObject<Env> {
     await this.save();
     const seat = s.seats[i] as Human;
     this.send(ws, { t: "welcome", you: i, name: seat.nick, room: this.view(), chat: this.recentChat() });
+    this.sendGame(ws, i);
     if (!back) this.sys(`${seat.nick} joined.`);
     this.broadcastRoom();
     await this.sync();
@@ -400,6 +432,143 @@ export class Room extends DurableObject<Env> {
       .bind(this.st!.code, this.st!.game, row.nick, row.body, row.at, row.sid_hash, row.ip_hash, a.sidHash)
       .run();
     this.notice(ws, "reported. thanks.");
+  }
+
+  // ---------------------------------------------------------------- games
+
+  private async startGame(ws: WebSocket, opts?: Record<string, unknown>) {
+    const s = this.st!;
+    const seed = crypto.randomUUID();
+    const now = Date.now();
+    const humans = s.seats.filter(isHuman).length;
+    const mode = s.game === "arena" && opts?.mode === "1v1" ? "1v1" : "2v2";
+    if (s.game === "arena" && mode === "1v1" && humans > 2) return this.notice(ws, "1v1 is two players. switch to 2v2.");
+    // bots fill empty seats, up to a sensible table size
+    const fillTo = s.game === "arena" ? (mode === "1v1" ? 2 : 4) : auction.FILL_TO;
+    for (let i = 0, bots = 0; i < s.seats.length && humans + bots < fillTo; i++) {
+      if (s.seats[i] === null) {
+        s.seats[i] = { bot: true, nick: this.unique(randomName().replace(/-\d+$/, "-bot"), i) };
+        bots++;
+      }
+    }
+    const seats = s.seats.flatMap((x, i) => (x ? [{ seat: i, nick: x.nick, bot: x.bot }] : []));
+    // FAST=1 (local testing only, never set in prod) runs the auction clock ~7× faster
+    const k = this.env.DEV && this.env.FAST ? 0.15 : 1;
+    s.match = s.game === "arena" ? { kind: "arena", s: arena.createArena(seats, mode, now, seed) } : { kind: "auction", s: auction.createAuction(seed, seats, now, k) };
+    s.state = "playing";
+    await this.save();
+    await this.sync();
+    this.sys(s.game === "arena" ? "match starting. write your autonomous." : "the auction is starting. good luck.");
+    this.broadcastRoom();
+    this.broadcastGame();
+    if (s.match.kind === "arena") this.startLoop();
+    await this.schedule();
+  }
+
+  // ---- arena runs on a fixed 20Hz loop while a match is live (the room can't hibernate then,
+  // which is the point: it's only for the ~2.5 minutes of a match)
+  private loop: ReturnType<typeof setInterval> | null = null;
+  private lastPersist = 0;
+  private startLoop() {
+    if (this.loop) return;
+    this.loop = setInterval(() => void this.arenaTick().catch((e) => console.error("arena tick", e)), arena.TICK_MS);
+  }
+  private stopLoop() {
+    if (this.loop) clearInterval(this.loop);
+    this.loop = null;
+  }
+  private async arenaTick() {
+    const g = this.st?.match;
+    if (!g || g.kind !== "arena" || this.st!.state !== "playing") return this.stopLoop();
+    const w = g.s;
+    const before = w.phase;
+    arena.step(w, Date.now());
+    if (w.phase === "done") {
+      this.stopLoop();
+      return this.endGame();
+    }
+    if (w.phase !== "program" || before !== w.phase) this.broadcastGame();
+    // persist about once a second so a restart can pick the match back up
+    if (Date.now() - this.lastPersist > 1000) {
+      this.lastPersist = Date.now();
+      await this.save();
+    }
+  }
+
+  private async gameAction(ws: WebSocket, seat: number, x: Record<string, unknown>) {
+    const g = this.st!.match!;
+    if (g.kind === "auction") {
+      const r = auction.act(g.s, seat, x as auction.Action, Date.now());
+      if (!r.ok) return this.notice(ws, r.notice);
+      await this.save();
+      this.broadcastGame();
+      await this.schedule();
+    } else {
+      const r = arena.act(g.s, seat, x as arena.ArenaAction);
+      if (!r.ok) return this.notice(ws, r.notice);
+      if (x.a === "prog") this.notice(ws, "program loaded.");
+      if (r.changed) this.broadcastGame();
+    }
+  }
+
+  private async gameTick(now: number) {
+    const s = this.st!;
+    const g = s.match;
+    if (!g) return;
+    if (g.kind === "arena") {
+      // heartbeat: if the loop isn't running (the room restarted), pick the match back up
+      if (!this.loop) this.startLoop();
+      return;
+    }
+    if (g.kind === "auction" && auction.tick(g.s, now)) {
+      if (g.s.phase === "done") await this.endGame();
+      else {
+        await this.save();
+        this.broadcastGame();
+      }
+    }
+  }
+
+  /** back to the lobby: bots leave, the results stay up until the next start */
+  private async endGame() {
+    this.stopLoop();
+    const s = this.st!;
+    s.state = "lobby";
+    s.seats = s.seats.map((x) => (x?.bot ? null : x));
+    await this.save();
+    await this.sync();
+    this.sys(s.match?.kind === "arena" ? "match over. host can start a rematch." : "that's the last lot. host can start another round.");
+    this.broadcastRoom();
+    this.broadcastGame();
+  }
+
+  private gameWake(): number | null {
+    const g = this.st?.match;
+    if (!g || this.st!.state !== "playing") return null;
+    return g.kind === "auction" ? auction.nextWake(g.s) : Date.now() + 2000;
+  }
+
+  private sendGame(ws: WebSocket, seat: number) {
+    const g = this.st?.match;
+    if (!g) return;
+    if (g.kind === "auction") this.send(ws, { t: "game", g: auction.view(g.s, seat, Date.now()) });
+    else this.send(ws, { t: "game", g: arena.snapshot(g.s) });
+  }
+  private broadcastGame() {
+    const g = this.st?.match;
+    if (g?.kind === "arena") {
+      // same snapshot for everyone: build the frame once
+      const frame = JSON.stringify({ t: "game", g: arena.snapshot(g.s) } satisfies ServerMsg);
+      for (const ws of this.members()) {
+        try {
+          ws.send(frame);
+        } catch {
+          /* closing */
+        }
+      }
+      return;
+    }
+    for (const ws of this.members()) this.sendGame(ws, this.att(ws).seat);
   }
 
   // ---------------------------------------------------------------- admin (rpc from admin → rooms)

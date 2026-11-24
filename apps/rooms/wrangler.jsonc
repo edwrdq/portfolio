@@ -28,6 +28,7 @@
   "ratelimits": [{ "name": "CREATE_LIMIT", "namespace_id": "1102", "simple": { "limit": 10, "period": 60 } }],
   "vars": { "ORIGINS": "https://edwrdq.com,https://www.edwrdq.com" },
   // secrets (wrangler secret put): IP_SALT — its own random value, hashes ips + session ids
+  //                                ONION_SECRET — optional, the same value as the site's (tor doorway)
 
   "env": {
     // local: `pnpm dev` (wrangler dev --env dev) on :8787, next to the site's astro dev on :4321.

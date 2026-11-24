@@ -45,7 +45,8 @@ function base() {
 
 export async function getCode(kind: "new" | "quick", game: string, pub = false): Promise<{ ok: true; code: string } | { ok: false; error: string }> {
   try {
-    const res = await fetch(`${base()}/ws/${kind}?game=${encodeURIComponent(game)}${pub ? "&public=1" : ""}`);
+    // s: your session id, so the create limit is per session over tor (everyone shares one ip there)
+    const res = await fetch(`${base()}/ws/${kind}?game=${encodeURIComponent(game)}${pub ? "&public=1" : ""}&s=${encodeURIComponent(identity().sid)}`);
     const j = (await res.json().catch(() => null)) as { ok?: boolean; code?: string; error?: string } | null;
     if (res.ok && j?.ok && j.code) return { ok: true, code: j.code };
     return { ok: false, error: j?.error ?? "couldn't reach the rooms. try again." };

@@ -110,6 +110,43 @@ const { endpoint, id, presets = [], placeholder = "or type whatever", slug } = A
       document.head.appendChild(s);
     }));
 
+  // over tor (the .onion address) turnstile usually can't run: do a small proof-of-work instead,
+  // and send a random per-browser id so the rate limit is per session, not per (shared) ip.
+  const onion = location.hostname.endsWith(".onion");
+  const sessionId = () => {
+    try {
+      let id = localStorage.getItem("edwrdq-sid");
+      if (!id || !/^[A-Za-z0-9_-]{16,64}$/.test(id)) {
+        id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(36).padStart(2, "0")).join(""); // getRandomValues works without a secure context
+        localStorage.setItem("edwrdq-sid", id);
+      }
+      return id;
+    } catch {
+      return "";
+    }
+  };
+  async function solvePow() {
+    const { sha256 } = await import("../lib/sha256");
+    const c = (await (await fetch("/api/pow")).json()) as { ts: number; sig: string; bits: number };
+    const enc = new TextEncoder();
+    for (let n = 0; n < 50_000_000; n++) {
+      // breathe every few thousand tries so the page stays responsive
+      if (n % 4096 === 4095) await new Promise((r) => setTimeout(r));
+      const nonce = n.toString(36);
+      const h = sha256(enc.encode(`${c.sig}:${nonce}`));
+      let z = 0;
+      for (const b of h) {
+        if (b === 0) z += 8;
+        else {
+          z += Math.clz32(b) - 24;
+          break;
+        }
+      }
+      if (z >= c.bits) return { ts: c.ts, sig: c.sig, nonce };
+    }
+    throw new Error("pow");
+  }
+
   for (const form of document.querySelectorAll<HTMLFormElement>("[data-msg-form]")) {
     const area = form.querySelector("textarea")!;
     const name = form.querySelector<HTMLInputElement>('input[name="name"]')!;
@@ -166,7 +203,7 @@ const { endpoint, id, presets = [], placeholder = "or type whatever", slug } = A
     };
 
     // warm it up once they start writing
-    const warm = () => ensureWidget().catch(() => {});
+    const warm = () => (onion ? undefined : ensureWidget().catch(() => {}));
     area.addEventListener("focus", warm, { once: true });
 
     // ---- send
@@ -183,17 +220,21 @@ const { endpoint, id, presets = [], placeholder = "or type whatever", slug } = A
 
       busy = true;
       send.disabled = true;
-      say("checking you're human…");
+      say(onion ? "doing a quick proof-of-work (tor)…" : "checking you're human…");
 
       try {
-        const token = await getToken().catch(() => {
-          throw new Error("the bot check didn't load. try again?");
-        });
+        const proof = onion
+          ? { pow: await solvePow().catch(() => { throw new Error("the tor check didn't finish. try again?"); }), sid: sessionId() }
+          : {
+              token: await getToken().catch(() => {
+                throw new Error("the bot check didn't load. try again?");
+              }),
+            };
         say("sending…");
         const res = await fetch(form.dataset.endpoint!, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ body, name: name.value.trim(), token, slug: form.dataset.slug }),
+          body: JSON.stringify({ body, name: name.value.trim(), ...proof, slug: form.dataset.slug }),
         });
         const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
         if (!res.ok || !data.ok) throw new Error(data.error ?? "that didn't work. try again?");

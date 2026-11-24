@@ -25,8 +25,19 @@ export async function hash(env: Env, kind: "ip" | "sid", value: string) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
 }
 
-/** an active ban on either hash? */
+/** came through the tor doorway? only if X-From-Onion matches ONION_SECRET exactly */
+export function isOnion(request: Request, env: Env) {
+  const got = request.headers.get("x-from-onion");
+  const want = env.ONION_SECRET;
+  if (!want || !got || got.length !== want.length) return false;
+  let d = 0;
+  for (let i = 0; i < got.length; i++) d |= got.charCodeAt(i) ^ want.charCodeAt(i);
+  return d === 0;
+}
+
+/** an active ban on either hash? (tor visitors have no ip hash: they all share the vps's ip) */
 export async function banned(env: Env, sidHash: string | null, ipHash: string | null) {
+  ipHash ||= null;
   const row = await env.DB.prepare(
     "SELECT 1 FROM room_bans WHERE (sid_hash = ?1 OR ip_hash = ?2) AND (expires_at IS NULL OR expires_at > unixepoch()) LIMIT 1",
   )

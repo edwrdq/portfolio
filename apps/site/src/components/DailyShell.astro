@@ -1,4 +1,5 @@
 ---
+import NeedsJs from "./NeedsJs.astro";
 // page frame for every daily game: seo head (Game + FAQPage json-ld), title block, the daily nav,
 // the game itself (default slot), a plain-html explainer (slot "how") and the faq.
 import Base from "../layouts/Base.astro";
@@ -29,6 +30,7 @@ const { game, n, seoTitle, description, intro, faq, wide = false, title = game }
 
   <section class:list={["game gutter", wide && "wide"]} aria-label={`today's ${game}`}>
     <DailyNav game={game} />
+    <NeedsJs />
     <slot />
   </section>
 

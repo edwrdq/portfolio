@@ -251,6 +251,9 @@ importers:
       '@edwrdq/rooms':
         specifier: workspace:*
         version: link:../../packages/rooms
+      '@edwrdq/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       wrangler:
         specifier: ^4.166.0
         version: 4.166.0(@types/node@18.19.130)
@@ -313,7 +316,14 @@ importers:
 
   packages/now: {}
 
-  packages/rooms: {}
+  packages/rooms:
+    dependencies:
+      '@edwrdq/daily':
+        specifier: workspace:*
+        version: link:../daily
+      '@edwrdq/ui':
+        specifier: workspace:*
+        version: link:../ui
 
   packages/stats: {}
 

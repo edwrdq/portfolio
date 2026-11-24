@@ -15,8 +15,8 @@ export type GameInfo = {
 };
 
 export const GAMES: GameInfo[] = [
-  { id: "auction", name: "auction", blurb: "buy wrecked cars, find out what they need, flip them.", href: "/play/auction", max: 8, min: 1, ready: false },
-  { id: "arena", name: "arena", blurb: "program your robot's autonomous, then drive. 2v2.", href: "/play/arena", max: 4, min: 1, ready: false },
+  { id: "auction", name: "auction", blurb: "buy wrecked cars, find out what they need, flip them.", href: "/play/auction", max: 8, min: 1, ready: true },
+  { id: "arena", name: "arena", blurb: "program your robot's autonomous, then drive. 2v2.", href: "/play/arena", max: 4, min: 1, ready: true },
 ];
 
 export const isGame = (g: unknown): g is GameId => GAMES.some((x) => x.id === g);

@@ -6,6 +6,7 @@ import PageHead from "../components/PageHead.astro";
 import ToolFoot from "../components/ToolFoot.astro";
 import Faq from "../components/Faq.astro";
 import Studio from "@edwrdq/dither/Studio.astro";
+import NeedsJs from "../components/NeedsJs.astro";
 
 const title = "free online image dithering tool";
 const description =
@@ -62,6 +63,7 @@ const ld = JSON.stringify({
   <PageHead n="T01" label="TOOL — IMAGE" title="dither" intro="turn any photo into dots. pick an algorithm, your own two colors, crop it, export a png. it all runs in your browser, nothing gets uploaded." />
 
   <section class="tool gutter" aria-label="dithering tool">
+    <NeedsJs />
     <Studio open placeholder={{ src: "/img/dither-sample.png", width: 640, height: 427, alt: "sample landscape, dithered with atkinson in bone on black" }} />
     <p class="private">your image never leaves this device. there's no upload, no account, no tracking.</p>
   </section>

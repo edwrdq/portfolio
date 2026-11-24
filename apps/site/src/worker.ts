@@ -3,6 +3,8 @@
 // drop pages, bots, prefetches. stored: date + city-level geo + path. never: ips, ids, cookies.
 import astro from "@astrojs/cloudflare/entrypoints/server";
 import { isBot } from "./lib/bots";
+import { isOnion } from "./lib/server/onion";
+import { ONION_ADDRESS } from "@edwrdq/ui/onion";
 
 const SKIP = /^\/(api|x|d|_astro|_server-islands|og|img)(\/|$)/;
 
@@ -59,9 +61,21 @@ async function mediaImage(request: Request, env: Env, ctx: ExecutionContext): Pr
   return res;
 }
 
+const isHtml = (res: Response) => (res.headers.get("content-type") ?? "").includes("text/html");
+// anything admin-ish never answers through the onion (admin lives on admin.edwrdq.com anyway)
+const ADMINISH = /^\/(admin|wp-admin|cdn-cgi\/access)(\/|$)/i;
+
+/** onion visits: tag <html data-onion> so tor-only notes (like "needs javascript") can show */
+function markOnion(res: Response) {
+  return new HTMLRewriter().on("html", { element: (e) => e.setAttribute("data-onion", "") }).transform(res);
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    if (new URL(request.url).pathname.startsWith("/img/")) {
+    const onion = isOnion(request, env.ONION_SECRET);
+    const { pathname } = new URL(request.url);
+    if (onion && ADMINISH.test(pathname)) return new Response("not found", { status: 404 });
+    if (pathname.startsWith("/img/")) {
       const file = await env.ASSETS.fetch(request);
       if (file.status !== 404) return file;
       const img = await mediaImage(request, env, ctx).catch(() => null);
@@ -69,9 +83,18 @@ export default {
     }
     const res = await astro.fetch(request as any, env as any, ctx as any);
     try {
-      if (countable(request, res)) ctx.waitUntil(record(request, env).catch((e) => console.error("visit", e)));
+      // onion visits aren't counted: they'd all show up as the vps's city
+      if (!onion && countable(request, res)) ctx.waitUntil(record(request, env).catch((e) => console.error("visit", e)));
     } catch {
       /* counting must never break a page */
+    }
+    if (!isHtml(res)) return res;
+    if (onion) return markOnion(res);
+    if (ONION_ADDRESS) {
+      // tor browser shows ".onion available" for pages that send this
+      const out = new Response(res.body, res);
+      out.headers.set("onion-location", `http://${ONION_ADDRESS}${pathname}${new URL(request.url).search}`);
+      return out;
     }
     return res;
   },

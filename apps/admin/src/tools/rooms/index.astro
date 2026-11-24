@@ -169,7 +169,7 @@
             el("td", {}, String(i + 1)),
             el("td", {}, s.nick, tags ? el("span", { className: "dimmer" }, ` ${tags}`) : ""),
             el("td", { title: s.sid }, short(s.sid)),
-            el("td", { title: s.ip }, short(s.ip)),
+            el("td", { title: s.ip || "tor: no ip, ban by session" }, s.ip ? short(s.ip) : "tor"),
             el(
               "td",
               { className: "acts" },
@@ -209,7 +209,7 @@
           el(
             "li",
             {},
-            el("p", { className: "top" }, `${new Date(r.created_at * 1000).toLocaleString()} · room ${r.code} (${r.game}) · sent ${time(r.sent_at)} · session ${short(r.sid_hash)} · ip ${short(r.ip_hash)}`),
+            el("p", { className: "top" }, `${new Date(r.created_at * 1000).toLocaleString()} · room ${r.code} (${r.game}) · sent ${time(r.sent_at)} · session ${short(r.sid_hash)} · ip ${r.ip_hash ? short(r.ip_hash) : "tor"}`),
             el("p", { className: "msg" }, el("span", { className: "who" }, `${r.nick}: `), r.body),
             el("div", { className: "row" }, btn("dismiss", act("dismissed", () => api("dismiss", { id: r.id }))), ...banButtons({ sid: r.sid_hash, ip: r.ip_hash, nick: r.nick }, `report #${r.id}: ${r.body}`)),
           ),

@@ -29,7 +29,11 @@
     { "binding": "MEDIA", "bucket_name": "edwrdq-media" }
   ],
   // daily puzzle counter: max 20 posts/min per connection. counted in memory by cloudflare, nothing stored.
-  "ratelimits": [{ "name": "DAILY_LIMIT", "namespace_id": "1101", "simple": { "limit": 20, "period": 60 } }],
+  "ratelimits": [
+    { "name": "DAILY_LIMIT", "namespace_id": "1101", "simple": { "limit": 20, "period": 60 } },
+    // tor visitors all share one ip, so guestbook/comments from the onion also share a stricter cap
+    { "name": "ONION_LIMIT", "namespace_id": "1103", "simple": { "limit": 10, "period": 60 } }
+  ],
   "vars": {
     // discord user id for lanyard presence ("now" strip). empty = skip lanyard.
     "DISCORD_USER_ID": "1535485306311286836"
@@ -37,6 +41,7 @@
   // secrets (wrangler secret put): TURNSTILE_SECRET, IP_SALT,
   // DISCORD_WEBHOOK_URL (optional), GITHUB_TOKEN (optional — enables the contribution calendar),
   // HACKATIME_API_KEY (optional — "coding <project>" in the now strip)
+  // ONION_SECRET (optional — the tor vps sends it as X-From-Onion; see lib/server/onion.ts)
 
   "env": {
     // local `astro dev` only (selected in astro.config.mjs). worker-first would swallow
@@ -56,7 +61,10 @@
     { "binding": "DROP", "bucket_name": "edwrdq-drop" },
     { "binding": "MEDIA", "bucket_name": "edwrdq-media" }
   ],
-      "ratelimits": [{ "name": "DAILY_LIMIT", "namespace_id": "1101", "simple": { "limit": 20, "period": 60 } }],
+      "ratelimits": [
+        { "name": "DAILY_LIMIT", "namespace_id": "1101", "simple": { "limit": 20, "period": 60 } },
+        { "name": "ONION_LIMIT", "namespace_id": "1103", "simple": { "limit": 10, "period": 60 } }
+      ],
       "vars": { "DISCORD_USER_ID": "1535485306311286836" }
     }
   }

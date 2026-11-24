@@ -1,4 +1,5 @@
 ---
+import NeedsJs from "../../components/NeedsJs.astro";
 // /play/<game>: what it is, quick play, make a room, join with a code. static html; the buttons need js.
 import Base from "../../layouts/Base.astro";
 import PageHead from "../../components/PageHead.astro";
@@ -34,6 +35,7 @@ const n = `P${String(GAMES.indexOf(g) + 1).padStart(2, "0")}`;
     </form>
     <p class="msg" data-msg aria-live="polite"></p>
     <noscript><p class="msg">multiplayer needs javascript. everything below works without it.</p></noscript>
+    <NeedsJs />
   </section>
 
   <section class="explain gutter" aria-label="how it works">

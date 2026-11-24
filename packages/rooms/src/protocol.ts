@@ -23,9 +23,11 @@ export type ClientMsg =
   | { t: "chat"; text: string }
   | { t: "report"; id: number }
   | { t: "public"; on: boolean }
-  | { t: "start" };
+  | { t: "start"; opts?: Record<string, unknown> }
+  /** a game action: the game decides what's in it */
+  | { t: "g"; x: Record<string, unknown> };
 
-export type ByeReason = "gone" | "full" | "kicked" | "banned" | "off" | "replaced" | "closed" | "bad";
+export type ByeReason = "gone" | "full" | "started" | "kicked" | "banned" | "off" | "replaced" | "closed" | "bad";
 
 export type ServerMsg =
   | { t: "welcome"; you: number; name: string; room: RoomView; chat: ChatMsg[] }
@@ -33,11 +35,14 @@ export type ServerMsg =
   | { t: "chat"; msg: ChatMsg }
   | { t: "name"; name: string }
   | { t: "notice"; text: string }
+  /** this seat's view of the running (or just finished) game */
+  | { t: "game"; g: unknown }
   | { t: "bye"; reason: ByeReason };
 
 export const BYE_TEXT: Record<ByeReason, string> = {
   gone: "this room doesn't exist anymore.",
   full: "this room is full.",
+  started: "this game already started. make a room, or wait and join the next one.",
   kicked: "you were removed from this room.",
   banned: "you can't join rooms right now.",
   off: "multiplayer is off right now. try again later.",

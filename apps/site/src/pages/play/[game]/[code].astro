@@ -1,4 +1,5 @@
 ---
+import NeedsJs from "../../../components/NeedsJs.astro";
 // /play/<game>/<CODE>: a room. rendered per request (codes are made on the fly), never indexed.
 // the html is the frame — seats, chat — and the script fills it from the room's websocket.
 export const prerender = false;
@@ -28,6 +29,8 @@ const n = `P${String(GAMES.indexOf(g) + 1).padStart(2, "0")}`;
 
     <div class="cols">
       <div class="main">
+        <div class="gamebox" data-gamebox hidden></div>
+        <div class="lobby" data-lobby>
         <p class="label">SEATS · <span data-count>0/{g.max}</span></p>
         <ol class="seats" data-seats>
           {Array.from({ length: g.max }, (_, i) => <li class="seat empty"><span class="n">{String(i + 1).padStart(2, "0")}</span><span class="nick">empty</span><span class="tag" /></li>)}
@@ -44,11 +47,19 @@ const n = `P${String(GAMES.indexOf(g) + 1).padStart(2, "0")}`;
         </form>
 
         <div class="startbox">
+          {game === "arena" && (
+            <div class="modes" role="group" aria-label="match size" data-modes>
+              <button type="button" class="chip" data-mode="2v2" aria-pressed="true">2v2</button>
+              <button type="button" class="chip" data-mode="1v1" aria-pressed="false">1v1</button>
+            </div>
+          )}
           <button type="button" class="btn btn-primary" data-start disabled>START</button>
           <p class="hint" data-start-note>{g.ready ? "only the host can start." : `${g.name} isn't open yet. the lobby and chat work.`}</p>
         </div>
+        </div>
         <p class="gone" data-gone hidden></p>
         <noscript><p class="gone">rooms need javascript.</p></noscript>
+        <NeedsJs />
       </div>
       <Chat />
     </div>
@@ -60,6 +71,23 @@ const n = `P${String(GAMES.indexOf(g) + 1).padStart(2, "0")}`;
   import { randomName, cleanName } from "@edwrdq/rooms/names";
   import { BYE_TEXT, type RoomView, type ServerMsg } from "@edwrdq/rooms/protocol";
   import { mountChat } from "../../../lib/play/chat";
+  import type { AuctionView } from "@edwrdq/rooms/auction";
+  import type { ArenaView } from "@edwrdq/rooms/arena";
+
+  type GameUi = { update(v: unknown): void };
+  // each game's screen loads only when that game starts
+  const SCREENS: Record<string, (el: HTMLElement, send: (x: Record<string, unknown>) => void, you: () => number) => Promise<GameUi>> = {
+    auction: async (el, send) => {
+      const { mountAuction } = await import("../../../lib/play/auction");
+      const ui = mountAuction(el, send);
+      return { update: (v) => ui.update(v as AuctionView) };
+    },
+    arena: async (el, send, you) => {
+      const { mountArena } = await import("../../../lib/play/arena");
+      const ui = mountArena(el, send, you);
+      return { update: (v) => ui.update(v as ArenaView) };
+    },
+  };
 
   const root = document.querySelector<HTMLElement>("[data-room]");
   if (root) {
@@ -96,6 +124,8 @@ const n = `P${String(GAMES.indexOf(g) + 1).padStart(2, "0")}`;
           return chat.add(m.msg);
         case "name":
           return setName(m.name);
+        case "game":
+          return showGame(m.g);
         case "notice":
           return chat.flash(m.text);
         case "bye": {
@@ -107,6 +137,14 @@ const n = `P${String(GAMES.indexOf(g) + 1).padStart(2, "0")}`;
           return;
         }
       }
+    }
+
+    let screen: Promise<GameUi> | null = null;
+    function showGame(v: unknown) {
+      const box = $("[data-gamebox]");
+      box.hidden = false;
+      screen ??= SCREENS[game]?.(box, (x) => sock.send({ t: "g", x }), () => you) ?? null;
+      screen?.then((ui) => ui.update(v));
     }
 
     function setName(name: string) {
@@ -131,16 +169,27 @@ const n = `P${String(GAMES.indexOf(g) + 1).padStart(2, "0")}`;
       pub.setAttribute("aria-pressed", String(r.public));
       pub.textContent = r.public ? "public room" : "private room";
       pub.title = isHost ? "public rooms show up in quick play" : "only the host can change this";
+      $("[data-lobby]").hidden = r.state === "playing";
+      root!.classList.toggle("playing", r.state === "playing");
       const start = $<HTMLButtonElement>("[data-start]");
+      if (screen) start.textContent = "PLAY AGAIN";
       start.disabled = !isHost || !ready;
       start.hidden = !isHost;
-      if (ready) $("[data-start-note]").textContent = isHost ? "empty seats become bots." : "waiting for the host to start.";
+      const modes = root!.querySelector<HTMLElement>("[data-modes]");
+      if (modes) modes.hidden = !isHost;
+      if (ready) $("[data-start-note]").textContent = isHost ? "bots fill the empty seats." : "waiting for the host to start.";
       chat.enable(r.chat, "chat is off right now");
       if (r.slow) chat.flash("slow mode. one message every 5 seconds.");
     }
 
     $("[data-public]").addEventListener("click", () => room && sock.send({ t: "public", on: !room.public }));
-    $("[data-start]").addEventListener("click", () => sock.send({ t: "start" }));
+    let mode = "2v2";
+    for (const b of root.querySelectorAll<HTMLButtonElement>("[data-mode]"))
+      b.addEventListener("click", () => {
+        mode = b.dataset.mode!;
+        for (const o of root!.querySelectorAll<HTMLButtonElement>("[data-mode]")) o.setAttribute("aria-pressed", String(o === b));
+      });
+    $("[data-start]").addEventListener("click", () => sock.send({ t: "start", opts: { mode } }));
     $("[data-name]").addEventListener("submit", (e) => {
       e.preventDefault();
       const n = cleanName($<HTMLInputElement>("[data-nick]").value);
@@ -267,6 +316,10 @@ const n = `P${String(GAMES.indexOf(g) + 1).padStart(2, "0")}`;
     grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 0.4rem;
   }
+  .lobby {
+    display: grid;
+    gap: 1rem;
+  }
   .startbox {
     display: grid;
     gap: 0.5rem;
@@ -280,6 +333,347 @@ const n = `P${String(GAMES.indexOf(g) + 1).padStart(2, "0")}`;
   }
   .gone :global(a) {
     border-bottom: 1px solid var(--dim-4);
+  }
+  .modes {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .modes .chip {
+    min-height: 2.5rem;
+  }
+  /* ---------- arena (built by lib/play/arena.ts) */
+  .gamebox :global(.r-bar) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: baseline;
+    gap: 1rem;
+    border-bottom: 1px solid var(--seam);
+    padding-bottom: 0.6rem;
+  }
+  .gamebox :global(.r-score) {
+    font-variant-numeric: tabular-nums;
+    color: var(--dim-1);
+    white-space: nowrap;
+  }
+  .gamebox :global(.r-score .acid),
+  .gamebox :global(td.acid) {
+    color: var(--acid);
+  }
+  .gamebox :global(.r-score .bone),
+  .gamebox :global(td.bone) {
+    color: var(--bone);
+  }
+  .gamebox :global(.r-timer) {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 2rem;
+    line-height: 1;
+    color: var(--acid);
+    font-variant-numeric: tabular-nums;
+    min-width: 4ch;
+    text-align: right;
+  }
+  .gamebox :global(.r-field) {
+    width: 100%;
+    max-width: 36rem;
+    aspect-ratio: 1;
+    height: auto;
+    image-rendering: pixelated;
+    border: 1px solid var(--seam);
+    touch-action: none;
+  }
+  .gamebox :global(.r-pad) {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    max-width: 36rem;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .gamebox :global(.r-stick) {
+    width: 8.5rem;
+    height: 8.5rem;
+    border: 1px solid var(--seam);
+    border-radius: 50%;
+    background: var(--surface);
+    display: grid;
+    place-items: center;
+    touch-action: none;
+  }
+  .gamebox :global(.r-knob) {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 50%;
+    background: var(--dim-3);
+    border: 1px solid var(--dim-2);
+    pointer-events: none;
+  }
+  .gamebox :global(.r-act) {
+    height: 5.5rem;
+    min-width: 8.5rem;
+    touch-action: none;
+  }
+  /* touch controls on phones and touch-first devices, key hints everywhere else */
+  @media (pointer: fine) and (min-width: 761px) {
+    .gamebox :global(.r-pad) {
+      display: none;
+    }
+  }
+  @media (pointer: coarse), (max-width: 760px) {
+    .gamebox :global(.r-keys) {
+      display: none;
+    }
+  }
+  .gamebox :global(.r-editor) {
+    display: grid;
+    gap: 0.6rem;
+  }
+  .gamebox :global(.r-term) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.5rem;
+    align-items: start;
+    background: var(--bg);
+    border: 1px solid var(--seam);
+    padding: 0.6rem 0.75rem;
+  }
+  .gamebox :global(.r-prompt) {
+    color: var(--acid);
+    line-height: 1.6;
+  }
+  .gamebox :global(.r-code) {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    font-family: var(--font-mono);
+    font-size: var(--fs-body);
+    line-height: 1.6;
+    min-height: 12rem;
+    resize: vertical;
+    caret-color: var(--acid);
+  }
+  .gamebox :global(.r-status) {
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+  .gamebox :global(.r-status.bad) {
+    color: var(--bone);
+  }
+  .gamebox :global(.r-row) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .gamebox :global(.r-hint) {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .gamebox :global(.r-help) {
+    font-family: var(--font-mono);
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+    white-space: pre-wrap;
+  }
+  .gamebox :global(.r-results) {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .gamebox :global(.r-results:empty) {
+    display: none;
+  }
+  /* ---------- auction (built by lib/play/auction.ts) */
+  .gamebox {
+    display: grid;
+    gap: 1.25rem;
+    min-width: 0;
+  }
+  .gamebox :global(.a-head) {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    border-bottom: 1px solid var(--seam);
+    padding-bottom: 0.6rem;
+  }
+  .gamebox :global(.a-timer) {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 2rem;
+    line-height: 1;
+    color: var(--acid);
+    font-variant-numeric: tabular-nums;
+  }
+  .gamebox :global(.a-timer.hot) {
+    animation: blink 0.5s steps(1, end) infinite;
+  }
+  .gamebox :global(.a-art svg) {
+    width: 100%;
+    max-width: 28rem;
+    height: auto;
+    image-rendering: pixelated;
+  }
+  .gamebox :global(.a-car) {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.5rem, 5vw, 2.25rem);
+    letter-spacing: var(--track-tight);
+    line-height: 1.05;
+    color: var(--bone);
+    margin-block: 0.4rem 0.8rem;
+  }
+  .gamebox :global(.a-dl) {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.25rem 1.25rem;
+    font-size: var(--fs-small);
+  }
+  .gamebox :global(.a-dl dt) {
+    color: var(--dim-2);
+  }
+  .gamebox :global(.a-dl dd) {
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+  .gamebox :global(.a-cr) {
+    margin-top: 1rem;
+  }
+  .gamebox :global(.a-items li) {
+    display: grid;
+    grid-template-columns: 10rem minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    align-items: center;
+    padding-block: 0.45rem;
+    border-top: 1px solid var(--seam-soft);
+    font-size: var(--fs-small);
+  }
+  .gamebox :global(.a-k) {
+    color: var(--dim-1);
+  }
+  .gamebox :global(.a-q) {
+    color: var(--dim-3);
+    letter-spacing: 0.2em;
+  }
+  .gamebox :global(.a-bad) {
+    color: var(--bone);
+  }
+  .gamebox :global(.a-ok) {
+    color: var(--dim-1);
+  }
+  .gamebox :global(.a-tag) {
+    font-size: var(--fs-micro);
+    color: var(--acid);
+  }
+  .gamebox :global(.btn.xs) {
+    height: 2rem;
+    padding-inline: 0.6rem;
+  }
+  .gamebox :global(.a-hint) {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .gamebox :global(.a-bid) {
+    display: grid;
+    gap: 0.4rem;
+    padding: 1rem;
+    border: 1px solid var(--seam);
+    background: var(--surface);
+  }
+  .gamebox :global(.a-high) {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(2.5rem, 10vw, 4rem);
+    line-height: 1;
+    letter-spacing: var(--track-tight);
+    color: var(--acid);
+    font-variant-numeric: tabular-nums;
+  }
+  .gamebox :global(.a-by) {
+    color: var(--bone);
+  }
+  .gamebox :global(.a-incs) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.4rem;
+  }
+  .gamebox :global(.a-incs .btn) {
+    min-width: 6.5rem;
+  }
+  .gamebox :global(.a-bids li) {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+  .gamebox :global(.a-bids li:first-child) {
+    color: var(--bone);
+  }
+  .gamebox :global(.a-reveal) {
+    display: grid;
+    gap: 0.75rem;
+  }
+  .gamebox :global(.a-sold) {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.5rem;
+    color: var(--bone);
+    letter-spacing: var(--track-tight);
+  }
+  .gamebox :global(.a-bill),
+  .gamebox :global(.a-table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-small);
+    font-variant-numeric: tabular-nums;
+  }
+  .gamebox :global(.a-bill th),
+  .gamebox :global(.a-bill td),
+  .gamebox :global(.a-table th),
+  .gamebox :global(.a-table td) {
+    text-align: left;
+    padding: 0.35rem 0.5rem 0.35rem 0;
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .gamebox :global(th) {
+    color: var(--dim-2);
+    font-weight: 400;
+  }
+  .gamebox :global(.a-bill td:nth-child(n + 2)),
+  .gamebox :global(.a-bill th:nth-child(n + 2)) {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .gamebox :global(.a-sum td) {
+    color: var(--bone);
+  }
+  .gamebox :global(.a-profit) {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 2rem;
+  }
+  .gamebox :global(.up) {
+    color: var(--acid);
+  }
+  .gamebox :global(.down) {
+    color: var(--dim-1);
+  }
+  .gamebox :global(.a-table tr.me td) {
+    color: var(--bone);
+  }
+  .gamebox :global(.a-board) {
+    display: grid;
+    gap: 0.5rem;
+  }
+  @media (max-width: 760px) {
+    .gamebox :global(.a-items li) {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .gamebox :global(.a-items .a-k) {
+      grid-column: 1 / -1;
+    }
   }
   @media (max-width: 760px) {
     .cols {
