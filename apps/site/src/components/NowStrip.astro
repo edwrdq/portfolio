@@ -9,6 +9,7 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
     <span class="dot" data-dot aria-hidden="true"></span>
     <span class="txt" data-txt></span>
     <span class="ago" data-ago></span>
+    <a class="more" href="/stats">this week →</a>
   </p>
   <p class="l2 cs" data-custom hidden>
     <span class="emo" data-emo></span>
@@ -92,6 +93,14 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
   }
   .ago:empty {
     display: none;
+  }
+  .more {
+    flex: none;
+    margin-left: auto;
+    color: var(--dim-2);
+  }
+  .more:hover {
+    color: var(--bone);
   }
   .l2 {
     color: var(--dim-2);
