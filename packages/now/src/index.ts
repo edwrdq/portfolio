@@ -277,6 +277,45 @@ async function hackatime(key: string) {
   };
 }
 
+export type CodingDay = { date: string; total: number; projects: [string, number][] };
+
+/**
+ * hackatime's own per-day coding totals (utc days, oldest first) for /stats.
+ * edge-cached 10 min so page views don't hit hackatime. null on any failure.
+ */
+export async function hackatimeDays(key: string | undefined, days = 14): Promise<CodingDay[] | null> {
+  if (!key?.trim()) return null;
+  const end = new Date();
+  const start = new Date(end.getTime() - (days - 1) * 86400_000);
+  const ymd = (d: Date) => d.toISOString().slice(0, 10);
+  const url = `https://hackatime.hackclub.com/api/hackatime/v1/users/current/summaries?start=${ymd(start)}&end=${ymd(end)}`;
+  const cache = (globalThis as any).caches?.default as Cache | undefined;
+  // cache key never contains the api key
+  const ck = new Request(`https://now.cache/hackatime/${ymd(start)}/${ymd(end)}`);
+  let body: any = null;
+  try {
+    const hit = await cache?.match(ck);
+    if (hit) body = await hit.json();
+    else {
+      const res = await withTimeout(fetch(url, { headers: { authorization: `Bearer ${key.trim()}`, "user-agent": UA, accept: "application/json" } }), 3000);
+      if (!res.ok) throw new Error(`hackatime summaries → ${res.status}`);
+      body = await res.json();
+      await cache?.put(ck, new Response(JSON.stringify(body), { headers: { "cache-control": "public, max-age=600" } })).catch(() => {});
+    }
+  } catch (e) {
+    console.error("hackatime summaries", e);
+    return null;
+  }
+  if (!Array.isArray(body?.data)) return null;
+  return body.data.map((d: any) => ({
+    date: String(d?.range?.date ?? "").slice(0, 10),
+    total: Math.max(0, Number(d?.grand_total?.total_seconds) || 0),
+    projects: (Array.isArray(d?.projects) ? d.projects : [])
+      .map((p: any) => [clip(p?.name, 80).toLowerCase(), Math.max(0, Number(p?.total_seconds) || 0)] as [string, number])
+      .filter(([n, t]: [string, number]) => n && n !== "other" && n !== "unknown" && t > 0),
+  }));
+}
+
 // ---------------------------------------------------------------- d1
 
 type Row = { id: number; kind: "status" | "track"; text: string; tag: Tag | null; artist: string | null; url: string | null; created_at: number; expires_at: number | null; cleared_at: number | null };

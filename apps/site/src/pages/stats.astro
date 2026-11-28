@@ -5,6 +5,7 @@ import { env } from "cloudflare:workers";
 import Base from "../layouts/Base.astro";
 import PageHead from "../components/PageHead.astro";
 import ToolFoot from "../components/ToolFoot.astro";
+import { hackatimeDays } from "@edwrdq/now";
 
 export const prerender = false;
 
@@ -14,6 +15,9 @@ const DAY = 86400;
 const nowS = Math.floor(Date.now() / 1000);
 const weekAgo = nowS - 7 * DAY;
 const twoWeeksAgo = nowS - 14 * DAY;
+
+// coding comes from hackatime's own totals when it answers (full history, not just since recording began)
+const hkPromise = hackatimeDays((env as unknown as { HACKATIME_API_KEY?: string }).HACKATIME_API_KEY, 14);
 
 let rows: Row[] = [];
 try {
@@ -43,9 +47,17 @@ const groupOf = (kind: string) => GROUPS.find((g) => (g.kinds as readonly string
 const total = (from: number, to: number, g: string) =>
   rows.filter((r) => groupOf(r.kind) === g).reduce((n, r) => n + secs(r, from, to), 0);
 
-const totals = GROUPS.map((g) => ({ ...g, week: total(weekAgo, nowS + 60, g.id), prev: total(twoWeeksAgo, weekAgo, g.id) })).filter(
-  (g) => g.id !== "watching" || g.week > 0 || g.prev > 0,
-);
+const hk = await hkPromise;
+// hackatime days are utc dates: this week = the last 7 (incl. today), prev = the 7 before
+const hkWeek = hk?.slice(-7) ?? [];
+const hkPrev = hk?.slice(-14, -7) ?? [];
+const sumDays = (ds: typeof hkWeek) => ds.reduce((n, d) => n + d.total, 0);
+
+const totals = GROUPS.map((g) =>
+  g.id === "coding" && hk
+    ? { ...g, week: sumDays(hkWeek), prev: sumDays(hkPrev) }
+    : { ...g, week: total(weekAgo, nowS + 60, g.id), prev: total(twoWeeksAgo, weekAgo, g.id) },
+).filter((g) => g.id !== "watching" || g.week > 0 || g.prev > 0);
 
 // per-name breakdowns for the week
 const byName = (g: string) => {
@@ -54,7 +66,16 @@ const byName = (g: string) => {
   return [...m].filter(([, s]) => s >= 60).sort((a, b) => b[1] - a[1]).slice(0, 8);
 };
 const games = byName("gaming");
-const projects = byName("coding");
+const projects = hk
+  ? [
+      ...hkWeek
+        .flatMap((d) => d.projects)
+        .reduce((m, [n, t]) => m.set(n, (m.get(n) ?? 0) + t), new Map<string, number>()),
+    ]
+      .filter(([, t]) => t >= 60)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+  : byName("coding");
 
 const hm = (s: number) => {
   const m = Math.round(s / 60);
@@ -68,11 +89,13 @@ const delta = (a: number, b: number) => {
   return `${d > 0 ? "+" : "−"}${hm(Math.abs(d))} vs last week`;
 };
 
-const empty = rows.length === 0;
+const empty = rows.length === 0 && !hkWeek.some((d) => d.total > 0);
 // what the bars need: [group, start, end] for the week, nothing else
 const bars = rows
-  .filter((r) => r.last_seen_at + 60 > weekAgo && groupOf(r.kind))
+  .filter((r) => r.last_seen_at + 60 > weekAgo && groupOf(r.kind) && !(hk && groupOf(r.kind) === "coding"))
   .map((r) => [groupOf(r.kind), Math.max(r.started_at, weekAgo), r.last_seen_at + 60]);
+// hackatime coding per date — the browser puts each on the local day with the same date
+const codingDays = hkWeek.filter((d) => d.total > 0).map((d) => [d.date, d.total]);
 ---
 
 <Base title="stats" description="what eddy's been up to this week: hours coding, gaming and listening, recorded live." og="stats">
@@ -80,7 +103,7 @@ const bars = rows
     n="S01"
     label="NOW — STATS"
     title="stats"
-    intro="the last 7 days, sampled every minute from discord and hackatime. totals only — no songs, no artists."
+    intro="the last 7 days. coding from hackatime, the rest sampled every minute from discord. totals only — no songs, no artists."
   />
 
   <section class="gutter">
@@ -99,7 +122,7 @@ const bars = rows
             ))}
           </ul>
 
-          <div class="days" data-days data-bars={JSON.stringify(bars)} aria-label="hours per day, last 7 days">
+          <div class="days" data-days data-bars={JSON.stringify(bars)} data-coding={JSON.stringify(codingDays)} aria-label="hours per day, last 7 days">
             <noscript>
               <p class="empty">the daily chart needs javascript.</p>
             </noscript>
@@ -147,13 +170,15 @@ const bars = rows
     const bars = JSON.parse(el.dataset.bars ?? "[]") as [string, number, number][];
     const ORDER = ["coding", "gaming", "listening", "watching"];
     // 7 local days ending today
-    const days: { start: number; label: string; s: Record<string, number> }[] = [];
+    const coding = JSON.parse(el.dataset.coding ?? "[]") as [string, number][];
+    const days: { start: number; key: string; label: string; s: Record<string, number> }[] = [];
+    const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const d0 = new Date();
     d0.setHours(0, 0, 0, 0);
     for (let i = 6; i >= 0; i--) {
       const d = new Date(d0);
       d.setDate(d.getDate() - i);
-      days.push({ start: d.getTime() / 1000, label: d.toLocaleDateString(undefined, { weekday: "short" }).toLowerCase(), s: {} });
+      days.push({ start: d.getTime() / 1000, key: ymd(d), label: d.toLocaleDateString(undefined, { weekday: "short" }).toLowerCase(), s: {} });
     }
     for (const [g, a, b] of bars) {
       days.forEach((day, i) => {
@@ -161,6 +186,10 @@ const bars = rows
         const sec = Math.min(b, end) - Math.max(a, day.start);
         if (sec > 0) day.s[g] = (day.s[g] ?? 0) + sec;
       });
+    }
+    for (const [date, sec] of coding) {
+      const day = days.find((d) => d.key === date);
+      if (day) day.s.coding = (day.s.coding ?? 0) + sec;
     }
     const hrs = (s: number) => (s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1).replace(/\.0$/, "")}h`);
     const max = Math.max(3600, ...days.map((d) => Object.values(d.s).reduce((a, b) => a + b, 0)));
