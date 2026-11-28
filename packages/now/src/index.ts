@@ -33,6 +33,11 @@ export type Status = {
   live: boolean;
   /** when it was set (iso) — used for "2h ago" on the fallback */
   since: string | null;
+  /** rich presence extras (discord activities only): "details · state", start time, icon url */
+  detail?: string | null;
+  start?: string | null;
+  /** remote icon url. never shown raw — the site serves it to a pixelating canvas */
+  art?: string | null;
 };
 export type Music = {
   track: string;
@@ -79,12 +84,16 @@ export function resolveAsset(image: unknown, applicationId?: unknown): string | 
   return null;
 }
 
+/** a game with no rpc assets (plain detected game) still has an app icon behind discord's api */
+const appIcon = (id: unknown) => (typeof id === "string" && /^\d+$/.test(id) ? `app:${id}` : null);
+
 /** hosts the site may fetch album art from (the art endpoint refuses anything else) */
 export const ART_HOSTS = [
   "media.discordapp.net",
   "cdn.discordapp.com",
   "i.scdn.co",
   /\.mzstatic\.com$/,
+  /\.steamstatic\.com$/,
 ] as const;
 export function artAllowed(url: string) {
   try {
@@ -94,6 +103,22 @@ export function artAllowed(url: string) {
   } catch {
     return false;
   }
+}
+
+/**
+ * stored art → fetchable https url. "app:<id>" (detected game, no rpc assets) is looked up
+ * via discord's public rpc endpoint for the app's icon hash. null when there's nothing usable.
+ */
+export async function artUrl(art: string | null | undefined): Promise<string | null> {
+  if (!art) return null;
+  const app = art.match(/^app:(\d+)$/)?.[1];
+  if (!app) return artAllowed(art) ? art : null;
+  const res = await withTimeout(
+    fetch(`https://discord.com/api/v10/applications/${app}/rpc`, { headers: { "user-agent": UA }, cf: { cacheTtl: 86400, cacheEverything: true } } as RequestInit),
+  ).catch(() => null);
+  const body = (await res?.json().catch(() => null)) as { icon?: unknown } | null;
+  const icon = typeof body?.icon === "string" && /^[a-f0-9_]+$/i.test(body.icon) ? body.icon : null;
+  return icon ? `https://cdn.discordapp.com/app-icons/${app}/${icon}.png?size=64` : null;
 }
 
 // ---------------------------------------------------------------- lanyard
@@ -106,7 +131,7 @@ type Activity = {
   details_url?: string;
   application_id?: string;
   timestamps?: { start?: number; end?: number };
-  assets?: { large_image?: string; large_text?: string; large_url?: string };
+  assets?: { large_image?: string; large_text?: string; large_url?: string; small_image?: string };
 };
 
 const httpUrl = (v: unknown) => (typeof v === "string" && /^https?:\/\/\S+$/.test(v) ? v.slice(0, 500) : null);
@@ -162,28 +187,43 @@ async function lanyard(id: string) {
   }
 
   // ---- status from non-music activities (skip listening + custom status)
+  // a game/stream/watch beats an open editor (editors sit open in the background all day)
   let status: Status | null = null;
+  let editor: Status | null = null;
+  const VERB: Record<number, string> = { 0: "playing", 1: "streaming", 3: "watching", 5: "competing in" };
   for (const a of activities) {
     if (a.type === 2 || a.type === 4 || MUSIC_APPS.test(a.name ?? "")) continue;
     const name = clip(a.name, 60);
     if (!name) continue;
     if (EDITORS.test(name)) {
+      if (editor) continue;
       // an open-but-idle editor isn't "coding" — let hackatime decide
       if (IDLE.test(clip(a.details)) || IDLE.test(clip(a.state))) continue;
       const ws =
         clip(a.state).match(/^(?:workspace|in|project|working on)[:\s]+(.+)$/i)?.[1] ??
         clip(a.details).match(/^(?:workspace|in|project|working on)[:\s]+(.+)$/i)?.[1] ??
         null;
-      status = { text: ws ? `coding ${ws.toLowerCase()}` : `coding in ${name.toLowerCase()}`, tag: "coding", source: "discord", live: true, since: null };
-    } else if (a.type === 0) {
-      status = { text: `playing ${name.toLowerCase()}`, tag: null, source: "discord", live: true, since: null };
-    } else if (a.type === 1) {
-      status = { text: `streaming ${clip(a.details, 60).toLowerCase() || name.toLowerCase()}`, tag: null, source: "discord", live: true, since: null };
-    } else if (a.type === 3) {
-      status = { text: `watching ${name.toLowerCase()}`, tag: null, source: "discord", live: true, since: null };
+      editor = { text: ws ? `coding ${ws.toLowerCase()}` : `coding in ${name.toLowerCase()}`, tag: "coding", source: "discord", live: true, since: null };
+      continue;
     }
-    if (status) break;
+    const verb = a.type !== undefined ? VERB[a.type] : undefined;
+    if (!verb) continue;
+    const subject = a.type === 1 ? clip(a.details, 60) || name : name;
+    const detail = [a.type === 1 ? "" : clip(a.details, 80), clip(a.state, 80)].filter(Boolean).join(" · ") || null;
+    const start = typeof a.timestamps?.start === "number" && a.timestamps.start < Date.now() + 60_000 ? new Date(a.timestamps.start).toISOString() : null;
+    status = {
+      text: `${verb} ${subject.toLowerCase()}`,
+      tag: null,
+      source: "discord",
+      live: true,
+      since: null,
+      detail,
+      start,
+      art: resolveAsset(a.assets?.large_image, a.application_id) ?? resolveAsset(a.assets?.small_image, a.application_id) ?? appIcon(a.application_id),
+    };
+    break;
   }
+  status ??= editor;
 
   return { state: "ok" as const, status, music, activities, spotify: data.spotify ?? null };
 }

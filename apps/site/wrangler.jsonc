@@ -3,6 +3,9 @@
   // worker name must match the one bound to the custom domain
   "name": "site",
   "compatibility_date": "2026-11-17",
+  // edwrdq.com only — no *.workers.dev url, no preview urls
+  "workers_dev": false,
+  "preview_urls": false,
   "observability": { "enabled": true },
 
   // our own entry: hands off to astro, then counts page views (visitor map)

@@ -10,6 +10,10 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
     <span class="txt" data-txt></span>
     <span class="ago" data-ago></span>
   </p>
+  <p class="l2" data-act hidden>
+    <canvas class="art" data-act-art width="12" height="12" hidden aria-hidden="true"></canvas>
+    <span class="det" data-det></span>
+  </p>
   <p class="l2" data-music hidden>
     <canvas class="art" data-art width="12" height="12" hidden aria-hidden="true"></canvas>
     <span class="note" aria-hidden="true"><PixelIcon name="note" size={12} /></span>
@@ -47,6 +51,7 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
     }
   }
   .txt,
+  .det,
   .trk {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -85,6 +90,9 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
   .trk {
     color: var(--dim-1);
   }
+  .det:empty {
+    display: none;
+  }
   a.trk[href]:hover {
     color: var(--bone);
   }
@@ -97,7 +105,16 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
 
 <script>
   type Now = {
-    status: { text: string; tag: string | null; source: string; live: boolean; since: string | null } | null;
+    status: {
+      text: string;
+      tag: string | null;
+      source: string;
+      live: boolean;
+      since: string | null;
+      detail?: string | null;
+      start?: string | null;
+      art?: string | null;
+    } | null;
     music: { track: string; artist: string | null; url: string | null; art: string | null } | null;
   };
 
@@ -109,7 +126,29 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
     const musicRow = $("[data-music]");
     const trk = $<HTMLAnchorElement>("[data-trk]");
     const canvas = $<HTMLCanvasElement>("[data-art]");
-    let lastArt: string | null = null;
+    const actRow = $("[data-act]");
+    const det = $("[data-det]");
+    const actCanvas = $<HTMLCanvasElement>("[data-act-art]");
+    const lastArt = new WeakMap<HTMLCanvasElement, string | null>();
+
+    // show art on a canvas (only redraws when the url changes)
+    const setArt = (cv: HTMLCanvasElement, src: string | null | undefined) => {
+      if (!src) {
+        lastArt.set(cv, null);
+        cv.hidden = true;
+        return;
+      }
+      if (lastArt.get(cv) === src) return;
+      lastArt.set(cv, src);
+      pixelate(cv, src).then(() => (cv.hidden = false)).catch(() => (cv.hidden = true));
+    };
+
+    const elapsed = (iso: string) => {
+      const m = Math.floor(Math.max(0, Date.now() - Date.parse(iso)) / 60_000);
+      if (m < 1) return "just started";
+      if (m < 60) return `${m}m`;
+      return `${Math.floor(m / 60)}h ${m % 60}m`;
+    };
 
     const rel = (iso: string) => {
       const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
@@ -120,7 +159,7 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
     };
 
     // pixelate: average the cover down to a 12×12 grid of real colors; css scales it to 24px with hard edges
-    const pixelate = (src: string) =>
+    const pixelate = (canvas: HTMLCanvasElement, src: string) =>
       new Promise<void>((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
@@ -161,11 +200,16 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
       if (s) {
         const tagged = s.tag && s.source === "manual" && !s.text.toLowerCase().startsWith(s.tag) ? `${s.tag} — ${s.text}` : s.text;
         txt.textContent = tagged;
-        ago.textContent = !s.live && s.since ? rel(s.since) : "";
+        ago.textContent = !s.live && s.since ? rel(s.since) : s.live && s.start ? elapsed(s.start) : "";
       } else {
         txt.textContent = "listening";
         ago.textContent = "";
       }
+
+      const showAct = !!s && (!!s.detail || !!s.art);
+      actRow.hidden = !showAct;
+      det.textContent = (showAct && s?.detail) || "";
+      setArt(actCanvas, showAct ? s?.art : null);
 
       const m = n.music;
       musicRow.hidden = !m;
@@ -173,13 +217,7 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
         trk.textContent = m.artist ? `${m.track} — ${m.artist}` : m.track;
         if (m.url && /^https?:\/\//.test(m.url)) trk.href = m.url;
         else trk.removeAttribute("href");
-        if (m.art && m.art !== lastArt) {
-          lastArt = m.art;
-          pixelate(m.art).then(() => (canvas.hidden = false)).catch(() => (canvas.hidden = true));
-        } else if (!m.art) {
-          lastArt = null;
-          canvas.hidden = true;
-        }
+        setArt(canvas, m.art);
       }
     };
 

@@ -1,17 +1,18 @@
 import type { APIRoute } from "astro";
 import { env } from "cloudflare:workers";
-import { artAllowed, getNow } from "@edwrdq/now";
+import { artUrl, getNow } from "@edwrdq/now";
 
 export const prerender = false;
 
-// serves the *current* track's album art, same-origin, so the strip's canvas can
-// pixelate it. not a proxy: it takes no url, and only fetches from known art hosts.
-export const GET: APIRoute = async ({ locals }) => {
+// serves the *current* track's album art (or ?k=activity: the current game/activity icon),
+// same-origin, so the strip's canvas can pixelate it. not a proxy: it takes no url,
+// and only fetches from known art hosts.
+export const GET: APIRoute = async ({ locals, url }) => {
   // getNow, not a raw kv read: kv reads are edge-cached ~60s, so right after a track
   // change a raw read can still say "nothing playing"
   const now = await getNow(env, locals.cfContext);
-  const art = now?.music?.art;
-  if (!art || !artAllowed(art)) return new Response(null, { status: 404 });
+  const art = await artUrl(url.searchParams.get("k") === "activity" ? now?.status?.art : now?.music?.art);
+  if (!art) return new Response(null, { status: 404 });
 
   const upstream = await fetch(small(art), { cf: { cacheTtl: 3600, cacheEverything: true } } as RequestInit).catch(() => null);
   const type = upstream?.headers.get("content-type") ?? "";

@@ -22,7 +22,10 @@ export const GET: APIRoute = async ({ request, locals }) => {
   const now = await getNow(env, locals.cfContext);
   // public shape: no raw presence, no art url (art goes through /api/now/art)
   const body = {
-    status: now.status,
+    status: now.status && {
+      ...now.status,
+      art: now.status.art ? `/api/now/art?k=activity&v=${await short(now.status.art)}` : null,
+    },
     music: now.music && {
       track: now.music.track,
       artist: now.music.artist,
