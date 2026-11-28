@@ -1,0 +1,326 @@
+---
+// weekly totals from now_sessions (recorded every minute by the worker cron — see packages/now tick).
+// totals are computed here; the per-day bars are bucketed in the browser so days follow the viewer's clock.
+import { env } from "cloudflare:workers";
+import Base from "../layouts/Base.astro";
+import PageHead from "../components/PageHead.astro";
+import ToolFoot from "../components/ToolFoot.astro";
+
+export const prerender = false;
+
+type Row = { kind: string; name: string | null; started_at: number; last_seen_at: number };
+
+const DAY = 86400;
+const nowS = Math.floor(Date.now() / 1000);
+const weekAgo = nowS - 7 * DAY;
+const twoWeeksAgo = nowS - 14 * DAY;
+
+let rows: Row[] = [];
+try {
+  rows = (
+    await env.DB.prepare(
+      `SELECT kind, name, started_at, last_seen_at FROM now_sessions WHERE last_seen_at >= ? ORDER BY started_at`,
+    )
+      .bind(twoWeeksAgo)
+      .all<Row>()
+  ).results;
+} catch (e) {
+  console.error("stats", e); // table not migrated yet → empty page
+}
+
+// each sample covers the minute before it, so a session is (last_seen - started) + 60s
+const secs = (r: Row, from: number, to: number) =>
+  Math.max(0, Math.min(r.last_seen_at + 60, to) - Math.max(r.started_at, from));
+
+const GROUPS = [
+  { id: "coding", label: "coding", kinds: ["coding"] },
+  { id: "gaming", label: "gaming", kinds: ["playing", "competing"] },
+  { id: "listening", label: "listening", kinds: ["listening"] },
+  { id: "watching", label: "watching", kinds: ["watching", "streaming"] },
+] as const;
+const groupOf = (kind: string) => GROUPS.find((g) => (g.kinds as readonly string[]).includes(kind))?.id ?? null;
+
+const total = (from: number, to: number, g: string) =>
+  rows.filter((r) => groupOf(r.kind) === g).reduce((n, r) => n + secs(r, from, to), 0);
+
+const totals = GROUPS.map((g) => ({ ...g, week: total(weekAgo, nowS + 60, g.id), prev: total(twoWeeksAgo, weekAgo, g.id) })).filter(
+  (g) => g.id !== "watching" || g.week > 0 || g.prev > 0,
+);
+
+// per-name breakdowns for the week
+const byName = (g: string) => {
+  const m = new Map<string, number>();
+  for (const r of rows) if (groupOf(r.kind) === g && r.name) m.set(r.name, (m.get(r.name) ?? 0) + secs(r, weekAgo, nowS + 60));
+  return [...m].filter(([, s]) => s >= 60).sort((a, b) => b[1] - a[1]).slice(0, 8);
+};
+const games = byName("gaming");
+const projects = byName("coding");
+
+const hm = (s: number) => {
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  return m % 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m / 60}h`;
+};
+const delta = (a: number, b: number) => {
+  if (!b) return a ? "new this week" : "";
+  const d = a - b;
+  if (Math.abs(d) < 60) return "same as last week";
+  return `${d > 0 ? "+" : "−"}${hm(Math.abs(d))} vs last week`;
+};
+
+const empty = rows.length === 0;
+// what the bars need: [group, start, end] for the week, nothing else
+const bars = rows
+  .filter((r) => r.last_seen_at + 60 > weekAgo && groupOf(r.kind))
+  .map((r) => [groupOf(r.kind), Math.max(r.started_at, weekAgo), r.last_seen_at + 60]);
+---
+
+<Base title="stats" description="what eddy's been up to this week: hours coding, gaming and listening, recorded live." og="stats">
+  <PageHead
+    n="S01"
+    label="NOW — STATS"
+    title="stats"
+    intro="the last 7 days, sampled every minute from discord and hackatime. totals only — no songs, no artists."
+  />
+
+  <section class="gutter">
+    {
+      empty ? (
+        <p class="empty">nothing recorded yet. it starts filling in within a minute of me doing something.</p>
+      ) : (
+        <>
+          <ul class="totals">
+            {totals.map((t) => (
+              <li data-g={t.id}>
+                <span class="label">{t.label.toUpperCase()}</span>
+                <span class="big">{hm(t.week)}</span>
+                <span class="delta">{delta(t.week, t.prev)}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div class="days" data-days data-bars={JSON.stringify(bars)} aria-label="hours per day, last 7 days">
+            <noscript>
+              <p class="empty">the daily chart needs javascript.</p>
+            </noscript>
+          </div>
+          <ul class="legend" aria-hidden="true">
+            {totals.map((t) => (
+              <li data-g={t.id}>
+                <i />
+                {t.label}
+              </li>
+            ))}
+          </ul>
+
+          <div class="lists">
+            {[
+              { title: "GAMES", items: games, g: "gaming" },
+              { title: "PROJECTS", items: projects, g: "coding" },
+            ]
+              .filter((l) => l.items.length)
+              .map((l) => (
+                <div>
+                  <p class="label">{l.title}</p>
+                  <ol class="rank">
+                    {l.items.map(([name, s]) => (
+                      <li data-g={l.g}>
+                        <span class="nm">{name}</span>
+                        <span class="hrs">{hm(s)}</span>
+                        <span class="bar" style={`--w:${(s / l.items[0]![1]) * 100}%`} />
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ))}
+          </div>
+        </>
+      )
+    }
+  </section>
+  <ToolFoot />
+</Base>
+
+<script>
+  const el = document.querySelector<HTMLElement>("[data-days]");
+  if (el) {
+    const bars = JSON.parse(el.dataset.bars ?? "[]") as [string, number, number][];
+    const ORDER = ["coding", "gaming", "listening", "watching"];
+    // 7 local days ending today
+    const days: { start: number; label: string; s: Record<string, number> }[] = [];
+    const d0 = new Date();
+    d0.setHours(0, 0, 0, 0);
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(d0);
+      d.setDate(d.getDate() - i);
+      days.push({ start: d.getTime() / 1000, label: d.toLocaleDateString(undefined, { weekday: "short" }).toLowerCase(), s: {} });
+    }
+    for (const [g, a, b] of bars) {
+      days.forEach((day, i) => {
+        const end = days[i + 1]?.start ?? Infinity;
+        const sec = Math.min(b, end) - Math.max(a, day.start);
+        if (sec > 0) day.s[g] = (day.s[g] ?? 0) + sec;
+      });
+    }
+    const hrs = (s: number) => (s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1).replace(/\.0$/, "")}h`);
+    const max = Math.max(3600, ...days.map((d) => Object.values(d.s).reduce((a, b) => a + b, 0)));
+    el.replaceChildren(
+      ...days.map((day) => {
+        const sum = Object.values(day.s).reduce((a, b) => a + b, 0);
+        const col = document.createElement("div");
+        col.className = "col";
+        col.title = ORDER.filter((g) => day.s[g]).map((g) => `${g} ${hrs(day.s[g]!)}`).join(" · ") || "nothing";
+        const stack = document.createElement("div");
+        stack.className = "stack";
+        for (const g of ORDER) {
+          if (!day.s[g]) continue;
+          const seg = document.createElement("span");
+          seg.dataset.g = g;
+          seg.style.height = `${(day.s[g]! / max) * 100}%`;
+          stack.append(seg);
+        }
+        col.append(
+          Object.assign(document.createElement("span"), { className: "sum", textContent: sum ? hrs(sum) : "" }),
+          stack,
+          Object.assign(document.createElement("span"), { className: "day", textContent: day.label }),
+        );
+        return col;
+      }),
+    );
+  }
+</script>
+
+<style>
+  section {
+    display: grid;
+    gap: 3rem;
+  }
+  [data-g="coding"] {
+    --c: var(--acid);
+  }
+  [data-g="gaming"] {
+    --c: #6f8fc4;
+  }
+  [data-g="listening"] {
+    --c: var(--bone);
+  }
+  [data-g="watching"] {
+    --c: var(--dim-1);
+  }
+  .empty {
+    color: var(--dim-2);
+    font-size: var(--fs-small);
+  }
+
+  .totals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    border-top: 1px solid var(--seam-soft);
+  }
+  .totals li {
+    display: grid;
+    gap: 0.5rem;
+    padding: 1.25rem 0 1.5rem;
+    border-bottom: 1px solid var(--seam-soft);
+  }
+  .totals .label {
+    color: var(--c);
+  }
+  .big {
+    font-family: var(--font-display);
+    font-size: clamp(2.5rem, 8vw, 4rem);
+    font-weight: 700;
+    letter-spacing: var(--track-tight);
+    line-height: 1;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .delta {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+
+  .days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.5rem;
+    height: 14rem;
+  }
+  .days :global(.col) {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 0.4rem;
+    min-width: 0;
+    font-size: var(--fs-micro);
+    text-align: center;
+  }
+  .days :global(.sum) {
+    color: var(--dim-1);
+    font-variant-numeric: tabular-nums;
+  }
+  .days :global(.stack) {
+    display: flex;
+    flex-direction: column-reverse;
+    border-bottom: 1px solid var(--seam);
+  }
+  .days :global(.stack span) {
+    display: block;
+    background: var(--c);
+  }
+  .days :global(.day) {
+    color: var(--dim-2);
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    margin-top: -2rem;
+    font-size: var(--fs-micro);
+    color: var(--dim-2);
+  }
+  .legend li {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .legend i {
+    width: 8px;
+    height: 8px;
+    background: var(--c);
+  }
+
+  .lists {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 2.5rem;
+  }
+  .rank {
+    margin-top: 1rem;
+    border-top: 1px solid var(--seam-soft);
+  }
+  .rank li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.35rem 1rem;
+    padding-block: 0.7rem;
+    border-bottom: 1px solid var(--seam-soft);
+    font-size: var(--fs-small);
+  }
+  .nm {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+  }
+  .hrs {
+    color: var(--dim-1);
+    font-variant-numeric: tabular-nums;
+  }
+  .bar {
+    grid-column: 1 / -1;
+    height: 2px;
+    width: var(--w);
+    background: var(--c);
+  }
+</style>

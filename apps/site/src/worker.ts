@@ -5,6 +5,7 @@ import astro from "@astrojs/cloudflare/entrypoints/server";
 import { isBot } from "./lib/bots";
 import { isOnion } from "./lib/server/onion";
 import { ONION_ADDRESS } from "@edwrdq/ui/onion";
+import { tick } from "@edwrdq/now";
 
 const SKIP = /^\/(api|x|d|_astro|_server-islands|og|img)(\/|$)/;
 
@@ -71,6 +72,11 @@ function markOnion(res: Response) {
 }
 
 export default {
+  // every minute: refresh the "now" strip and record history for /stats
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(tick(env as any).catch((e) => console.error("now tick", e)));
+  },
+
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const onion = isOnion(request, env.ONION_SECRET);
     const { pathname } = new URL(request.url);

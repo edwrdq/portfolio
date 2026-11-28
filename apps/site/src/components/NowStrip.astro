@@ -10,6 +10,10 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
     <span class="txt" data-txt></span>
     <span class="ago" data-ago></span>
   </p>
+  <p class="l2 cs" data-custom hidden>
+    <span class="emo" data-emo></span>
+    <span class="det" data-cs></span>
+  </p>
   <p class="l2" data-act hidden>
     <canvas class="art" data-act-art width="12" height="12" hidden aria-hidden="true"></canvas>
     <span class="det" data-det></span>
@@ -44,6 +48,25 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
   }
   .now.is-live .dot {
     animation: pulse 1.8s var(--ease) infinite;
+  }
+  /* discord state. no state (lanyard off) keeps the acid default */
+  .now[data-presence="idle"] .dot {
+    background: #c49a3a;
+  }
+  .now[data-presence="dnd"] .dot {
+    background: #c4503a;
+  }
+  .now[data-presence="offline"] .dot {
+    background: var(--dim-3);
+  }
+  .cs .det {
+    font-style: italic;
+  }
+  .emo {
+    flex: none;
+  }
+  .emo:empty {
+    display: none;
   }
   @keyframes pulse {
     50% {
@@ -115,6 +138,8 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
       start?: string | null;
       art?: string | null;
     } | null;
+    presence?: "online" | "idle" | "dnd" | "offline" | null;
+    custom?: { text: string | null; emoji: string | null } | null;
     music: { track: string; artist: string | null; url: string | null; art: string | null } | null;
   };
 
@@ -129,6 +154,9 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
     const actRow = $("[data-act]");
     const det = $("[data-det]");
     const actCanvas = $<HTMLCanvasElement>("[data-act-art]");
+    const csRow = $("[data-custom]");
+    const csText = $("[data-cs]");
+    const emo = $("[data-emo]");
     const lastArt = new WeakMap<HTMLCanvasElement, string | null>();
 
     // show art on a canvas (only redraws when the url changes)
@@ -196,6 +224,15 @@ import PixelIcon from "@edwrdq/ui/PixelIcon.astro";
       }
       root.hidden = false;
       root.classList.toggle("is-live", !!s?.live || !!n.music);
+      if (n.presence) root.dataset.presence = n.presence;
+      else delete root.dataset.presence;
+      const dotLabel = n.presence === "dnd" ? "do not disturb" : n.presence ?? "";
+      $("[data-dot]").title = dotLabel;
+
+      const c = n.custom;
+      csRow.hidden = !c;
+      emo.textContent = c?.emoji ?? "";
+      csText.textContent = c?.text ? `“${c.text}”` : "";
 
       if (s) {
         const tagged = s.tag && s.source === "manual" && !s.text.toLowerCase().startsWith(s.tag) ? `${s.tag} — ${s.text}` : s.text;

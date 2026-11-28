@@ -165,6 +165,7 @@ TOOLS.push(
   { path: "play/auction", kicker: "P01 — PLAY / AUCTION", title: "auction", sub: "buy wrecked cars. flip them. best profit wins.", foot: "EDWRDQ.COM/PLAY/AUCTION", art: carArt },
   { path: "play/arena", kicker: "P02 — PLAY / ARENA", title: "arena", sub: "program your autonomous. then drive.", foot: "EDWRDQ.COM/PLAY/ARENA", art: await iconArt("chip") },
 );
+TOOLS.push({ path: "stats", kicker: "S01 — NOW / STATS", title: "stats", sub: "hours coding, gaming and listening this week.", foot: "EDWRDQ.COM/STATS", art: await iconArt("chart") });
 for (const t of TOOLS) jobs.push([t.path, card(t)]);
 
 for (const p of await posts()) {

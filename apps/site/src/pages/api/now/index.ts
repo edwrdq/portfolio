@@ -33,6 +33,8 @@ export const GET: APIRoute = async ({ request, locals }) => {
       source: now.music.source,
       art: now.music.art ? `/api/now/art?v=${await short(now.music.art)}` : null,
     },
+    presence: now.presence ?? null,
+    custom: now.custom ?? null,
     checkedAt: now.checkedAt,
   };
   const res = new Response(JSON.stringify(body), {

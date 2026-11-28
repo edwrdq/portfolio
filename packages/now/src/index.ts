@@ -47,7 +47,21 @@ export type Music = {
   art: string | null;
   source: "cider" | "spotify" | "manual";
 };
-export type Now = { v: 1; checkedAt: string; status: Status | null; music: Music | null };
+export type Presence = "online" | "idle" | "dnd" | "offline";
+/** discord custom status. emoji only when it's a plain unicode one */
+export type Custom = { text: string | null; emoji: string | null };
+export type Now = {
+  v: 1;
+  checkedAt: string;
+  status: Status | null;
+  music: Music | null;
+  /** discord online state (lanyard). null when lanyard is off/unavailable */
+  presence?: Presence | null;
+  custom?: Custom | null;
+};
+
+/** one thing being done right now, as recorded into now_sessions */
+export type Seen = { kind: "coding" | "playing" | "watching" | "streaming" | "competing" | "listening"; name: string | null };
 
 // diagnostics for the admin tool only — never sent to the public
 export type NowDebug = {
@@ -132,6 +146,7 @@ type Activity = {
   application_id?: string;
   timestamps?: { start?: number; end?: number };
   assets?: { large_image?: string; large_text?: string; large_url?: string; small_image?: string };
+  emoji?: { name?: string; id?: string };
 };
 
 const httpUrl = (v: unknown) => (typeof v === "string" && /^https?:\/\/\S+$/.test(v) ? v.slice(0, 500) : null);
@@ -191,6 +206,9 @@ async function lanyard(id: string) {
   let status: Status | null = null;
   let editor: Status | null = null;
   const VERB: Record<number, string> = { 0: "playing", 1: "streaming", 3: "watching", 5: "competing in" };
+  const KIND: Record<number, Seen["kind"]> = { 0: "playing", 1: "streaming", 3: "watching", 5: "competing" };
+  let seen: Seen | null = null;
+  let editorSeen: Seen | null = null;
   for (const a of activities) {
     if (a.type === 2 || a.type === 4 || MUSIC_APPS.test(a.name ?? "")) continue;
     const name = clip(a.name, 60);
@@ -204,6 +222,7 @@ async function lanyard(id: string) {
         clip(a.details).match(/^(?:workspace|in|project|working on)[:\s]+(.+)$/i)?.[1] ??
         null;
       editor = { text: ws ? `coding ${ws.toLowerCase()}` : `coding in ${name.toLowerCase()}`, tag: "coding", source: "discord", live: true, since: null };
+      editorSeen = { kind: "coding", name: (ws ?? name).toLowerCase().slice(0, 80) };
       continue;
     }
     const verb = a.type !== undefined ? VERB[a.type] : undefined;
@@ -221,11 +240,20 @@ async function lanyard(id: string) {
       start,
       art: resolveAsset(a.assets?.large_image, a.application_id) ?? resolveAsset(a.assets?.small_image, a.application_id) ?? appIcon(a.application_id),
     };
+    seen = { kind: KIND[a.type!]!, name: name.toLowerCase().slice(0, 80) };
     break;
   }
   status ??= editor;
 
-  return { state: "ok" as const, status, music, activities, spotify: data.spotify ?? null };
+  // ---- discord online state + custom status (type 4)
+  const presence: Presence | null = ["online", "idle", "dnd", "offline"].includes(data.discord_status) ? data.discord_status : null;
+  const cs = activities.find((a) => a.type === 4);
+  const csText = clip(cs?.state, 128) || null;
+  // custom (server) emoji have an id and need discord's cdn — only keep plain unicode ones
+  const csEmoji = cs?.emoji?.name && !cs.emoji.id ? clip(cs.emoji.name, 16) || null : null;
+  const custom: Custom | null = csText || csEmoji ? { text: csText, emoji: csEmoji } : null;
+
+  return { state: "ok" as const, status, presence, custom, seen, editorSeen, music, activities, spotify: data.spotify ?? null };
 }
 
 // ---------------------------------------------------------------- hackatime
@@ -264,18 +292,59 @@ const lastStatus = (db: D1) =>
 
 const iso = (unix: number) => new Date(unix * 1000).toISOString();
 
+// ---------------------------------------------------------------- sessions (history)
+
+type SessionRow = { id: number; kind: Seen["kind"]; name: string | null; started_at: number; last_seen_at: number };
+
+/** a session counts as over once it hasn't been seen for this long */
+export const SESSION_GAP_S = 180;
+
+// newest finished, non-music session (for "played roblox · 2h ago"). missing table → null.
+const lastSession = (db: D1) =>
+  db
+    .prepare(`SELECT * FROM now_sessions WHERE kind != 'listening' AND last_seen_at < unixepoch() - ${SESSION_GAP_S} ORDER BY last_seen_at DESC LIMIT 1`)
+    .first<SessionRow>();
+
+const PAST: Record<Seen["kind"], string> = { coding: "coded", playing: "played", watching: "watched", streaming: "streamed", competing: "competed in", listening: "listened" };
+const pastTense = (r: SessionRow) => (r.name ? `${PAST[r.kind]} ${r.name}` : PAST[r.kind]);
+
+/** extend each open session, or start a new one. one write per active thing per minute. */
+export async function recordSeen(db: D1, seen: Seen[]) {
+  for (const x of seen) {
+    const res = (await db
+      .prepare(
+        `UPDATE now_sessions SET last_seen_at = unixepoch()
+         WHERE id = (SELECT id FROM now_sessions WHERE kind = ? AND name IS ? AND last_seen_at >= unixepoch() - ${SESSION_GAP_S} ORDER BY id DESC LIMIT 1)`,
+      )
+      .bind(x.kind, x.name)
+      .run()) as { meta?: { changes?: number } };
+    if (!res?.meta?.changes)
+      await db.prepare(`INSERT INTO now_sessions (kind, name, started_at, last_seen_at) VALUES (?, ?, unixepoch(), unixepoch())`).bind(x.kind, x.name).run();
+  }
+}
+
+/** cron (every minute): recompute, refresh the kv cache, record history */
+export async function tick(env: NowEnv) {
+  const [cached, { now, seen }] = await Promise.all([readNow(env), computeNow(env)]);
+  // kv only on change (or every 10 min) — a write every minute would eat the daily kv quota
+  const stale10m = !cached || Date.now() - Date.parse(cached.checkedAt) > 10 * 60_000;
+  await Promise.all([!same(cached, now) || stale10m ? env.STATS.put(KV_KEY, JSON.stringify(now)) : null, recordSeen(env.DB, seen)]);
+  return { now, seen };
+}
+
 // ---------------------------------------------------------------- resolve
 
-export async function computeNow(env: NowEnv): Promise<{ now: Now; debug: NowDebug }> {
+export async function computeNow(env: NowEnv): Promise<{ now: Now; debug: NowDebug; seen: Seen[] }> {
   const discordId = env.DISCORD_USER_ID?.trim() || "";
   const hkKey = env.HACKATIME_API_KEY?.trim() || "";
 
-  const [ly, hk, manual, track, last] = await Promise.allSettled([
+  const [ly, hk, manual, track, last, ended] = await Promise.allSettled([
     discordId ? lanyard(discordId) : Promise.resolve(null),
     hkKey ? hackatime(hkKey) : Promise.resolve(null),
     activeStatus(env.DB),
     activeTrack(env.DB),
     lastStatus(env.DB),
+    lastSession(env.DB),
   ]);
 
   const debug: NowDebug = {
@@ -306,9 +375,30 @@ export async function computeNow(env: NowEnv): Promise<{ now: Now; debug: NowDeb
   else if (lyVal?.state === "ok" && lyVal.status) status = lyVal.status;
   else if (hkVal?.status) status = hkVal.status;
   else if (music) status = { text: "listening", tag: "listening", source: "music", live: true, since: null };
-  else if (l) status = { text: l.text, tag: l.tag, source: "last", live: false, since: iso(l.created_at) };
+  else {
+    // nothing live: the most recent of (last manual status, last recorded session)
+    const e = ended.status === "fulfilled" ? ended.value : null;
+    if (e && (!l || e.last_seen_at > l.created_at)) status = { text: pastTense(e), tag: e.kind === "coding" ? "coding" : null, source: "last", live: false, since: iso(e.last_seen_at) };
+    else if (l) status = { text: l.text, tag: l.tag, source: "last", live: false, since: iso(l.created_at) };
+  }
 
-  return { now: { v: 1, checkedAt: new Date().toISOString(), status, music }, debug };
+  // ---- what to record (independent of what the strip shows — a manual status doesn't hide a game)
+  const seen: Seen[] = [];
+  if (lyVal?.state === "ok" && lyVal.seen) seen.push(lyVal.seen);
+  // hackatime keeps "coding" up for 15 min on the strip, but history only counts heartbeats
+  // from the last 5 min — otherwise every session would end 15 min late
+  const hkRecent = !!hkVal?.at && Date.now() - Date.parse(hkVal.at) <= 5 * 60_000;
+  const hkProject = hkVal?.status && hkRecent ? hkVal.project?.toLowerCase() ?? null : null;
+  if (hkProject) seen.push({ kind: "coding", name: hkProject });
+  else if (lyVal?.state === "ok" && lyVal.editorSeen) seen.push(lyVal.editorSeen);
+  if (music && music.source !== "manual") seen.push({ kind: "listening", name: null });
+
+  const ok = lyVal?.state === "ok";
+  return {
+    now: { v: 1, checkedAt: new Date().toISOString(), status, music, presence: ok ? lyVal.presence : null, custom: ok ? lyVal.custom : null },
+    debug,
+    seen,
+  };
 }
 
 // ---------------------------------------------------------------- kv cache
@@ -321,7 +411,8 @@ export async function readNow(env: Pick<NowEnv, "STATS">): Promise<Now | null> {
   }
 }
 
-const same = (a: Now | null, b: Now) => !!a && JSON.stringify([a.status, a.music]) === JSON.stringify([b.status, b.music]);
+const same = (a: Now | null, b: Now) =>
+  !!a && JSON.stringify([a.status, a.music, a.presence, a.custom]) === JSON.stringify([b.status, b.music, b.presence, b.custom]);
 
 /**
  * fresh-enough cached value, or a recompute. kv is only written when the
