@@ -6,6 +6,7 @@ import Base from "../layouts/Base.astro";
 import PageHead from "../components/PageHead.astro";
 import ToolFoot from "../components/ToolFoot.astro";
 import { hackatimeDays } from "@edwrdq/now";
+import { getPosts, stamp } from "../lib/content";
 
 export const prerender = false;
 
@@ -89,6 +90,10 @@ const delta = (a: number, b: number) => {
   return `${d > 0 ? "+" : "−"}${hm(Math.abs(d))} vs last week`;
 };
 
+// weekly recaps = blog posts tagged "recap", newest first
+const recaps = (await getPosts()).filter((p) => p.data.tags?.includes("recap"));
+const [latest, ...older] = recaps;
+
 const empty = rows.length === 0 && !hkWeek.some((d) => d.total > 0);
 // what the bars need: [group, start, end] for the week, nothing else
 const bars = rows
@@ -107,6 +112,16 @@ const codingDays = hkWeek.filter((d) => d.total > 0).map((d) => [d.date, d.total
   />
 
   <section class="gutter">
+    {
+      latest && (
+        <a class="recap" href={`/blog/${latest.id}`}>
+          <span class="label">RECAP — {stamp(latest.data.date)}</span>
+          <span class="rt">{latest.data.title}</span>
+          {latest.data.summary && <span class="rs">{latest.data.summary}</span>}
+          <span class="rm">read →</span>
+        </a>
+      )
+    }
     {
       empty ? (
         <p class="empty">nothing recorded yet. it starts filling in within a minute of me doing something.</p>
@@ -158,6 +173,21 @@ const codingDays = hkWeek.filter((d) => d.total > 0).map((d) => [d.date, d.total
               ))}
           </div>
         </>
+      )
+    }
+    {
+      older.length > 0 && (
+        <div>
+          <p class="label">OLDER RECAPS</p>
+          <ol class="rank">
+            {older.map((p) => (
+              <li>
+                <a class="nm" href={`/blog/${p.id}`}>{p.data.title}</a>
+                <span class="hrs">{stamp(p.data.date)}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
       )
     }
   </section>
@@ -235,6 +265,39 @@ const codingDays = hkWeek.filter((d) => d.total > 0).map((d) => [d.date, d.total
   }
   [data-g="watching"] {
     --c: var(--dim-1);
+  }
+  .recap {
+    display: grid;
+    gap: 0.5rem;
+    padding: 1.25rem 1.25rem 1.1rem;
+    border: 1px solid var(--seam);
+    background: var(--surface);
+  }
+  .recap .label {
+    color: var(--acid);
+  }
+  .rt {
+    font-family: var(--font-display);
+    font-size: clamp(1.4rem, 4vw, 2rem);
+    font-weight: 700;
+    letter-spacing: var(--track-tight);
+    line-height: 1.05;
+    color: var(--text);
+  }
+  .rs {
+    font-size: var(--fs-small);
+    color: var(--dim-1);
+  }
+  .rm {
+    font-size: var(--fs-small);
+    color: var(--dim-2);
+  }
+  .recap:hover .rm,
+  .recap:hover .rt {
+    color: var(--bone);
+  }
+  a.nm:hover {
+    color: var(--bone);
   }
   .empty {
     color: var(--dim-2);
